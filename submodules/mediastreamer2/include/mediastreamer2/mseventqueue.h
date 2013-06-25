@@ -22,6 +22,10 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include <mediastreamer2/mscommon.h>
 
+#ifdef __cplusplus
+extern "C"{
+#endif
+
 typedef struct _MSEventQueue MSEventQueue;
 
 /**
@@ -59,5 +63,9 @@ MS2_PUBLIC void ms_event_queue_skip(MSEventQueue *q);
  * Destroys an event queue.
 **/
 MS2_PUBLIC void ms_event_queue_destroy(MSEventQueue *q);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

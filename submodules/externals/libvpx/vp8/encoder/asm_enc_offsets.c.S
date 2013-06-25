@@ -7,9 +7,10 @@
 	.eabi_attribute 25, 1
 	.eabi_attribute 26, 2
 	.eabi_attribute 30, 2
+	.eabi_attribute 34, 0
 	.eabi_attribute 18, 4
 	.file	"asm_enc_offsets.c"
-	.text
+	.section	.text.startup,"ax",%progbits
 	.align	2
 	.global	main
 	.type	main, %function
@@ -201,5 +202,5 @@ vp8_common_mb_rows EQU #2392
 	mov	r0, #0
 	bx	lr
 	.size	main, .-main
-	.ident	"GCC: (GNU) 4.4.3"
+	.ident	"GCC: (GNU) 4.7"
 	.section	.note.GNU-stack,"",%progbits

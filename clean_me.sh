@@ -1,6 +1,6 @@
 #!/bin/bash
 
-source ./env.sh
+#source ./env.sh
 
 NDK_BUILD=`which ndk-build`
 

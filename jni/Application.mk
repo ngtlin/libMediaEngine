@@ -13,6 +13,7 @@ ifeq ($(BUILD_AMRWB),)
 BUILD_AMRWB=0
 endif
 ifeq ($(BUILD_SRTP),)
+#Lin Ren default no build srtp
 BUILD_SRTP=0
 endif
 

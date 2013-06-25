@@ -21,13 +21,6 @@ fi
 
 echo "using $NDK_PATH as android NDK"
 
-cd submodules/externals/ffmpeg
-if test -z "`git status | grep neon`" ; then
-	echo "Applying patch to ffmpeg"
-	cd $topdir
-	patch -p0 < ${topdir}/patches/ffmpeg_scalar_product_remove_alignment_hints.patch
-fi
-
 cd $topdir/submodules/libilbc-rfc3951 && ./autogen.sh && ./configure && make || ( echo "iLBC prepare stage failed" ; exit 1 )
 
 cd $topdir/submodules/externals/libvpx && ./configure --target=armv7-android-gcc --sdk-path=$NDK_PATH --enable-error-concealment && make clean && make asm_com_offsets.asm || ( echo "VP8 prepare stage failed." ; exit 1 )
