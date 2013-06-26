@@ -2,8 +2,8 @@
 
 #source ./env.sh
 
-BUILD_VIDEO=1
-BUILD_X264=1
+BUILD_VIDEO=0
+BUILD_X264=0
 #Lin BUILD_AMRNB=full # 0, light or full
 BUILD_AMRNB=0
 BUILD_AMRWB=0

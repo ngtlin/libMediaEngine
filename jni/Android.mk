@@ -12,15 +12,8 @@ BUILD_G729=0
 endif
 #Lin BUILD_SRTP=1
 BUILD_SRTP=0
-ifeq ($(TARGET_ARCH_ABI),armeabi-v7a)
-#lin Ren disable VIDEO build 
-BUILD_VIDEO=0
-BUILD_X264=0
-#BUILD_X264=1
-#BUILD_VIDEO=1
-else
-BUILD_VIDEO=0
-BUILD_X264=0
+ifeq ($(TARGET_ARCH_ABI),armeabi)
+$(error "STOP video not supported on target armeabi devices!")
 endif
 
 
