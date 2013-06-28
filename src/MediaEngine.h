@@ -1,9 +1,8 @@
 #ifndef __MEDIA_ENGINE_H__
 #define __MEDIA_ENGINE_H__
 
-#include "mediastreamer2/mediastream.h"
-#include "mediastreamer2/mscommon.h"
-
+#include <mediastreamer2/mediastream.h>
+#include <mediastreamer2/mscommon.h>
 
 
 #define ME_NAME	"NGTI MediaEngine"
@@ -20,6 +19,7 @@
 
 #define ME_List 			MSList
 #define ME_List_Append      ms_list_append
+#define ME_LIST_Find		ms_list_find
 #define ME_List_nth_Data    ms_list_nth_data
 #define ME_List_Free        ms_list_free
 #define ME_LIST_SIZE 		ms_list_size
@@ -30,6 +30,9 @@
 
 #define MEDIA_TYPE_AUDIO  	(0)
 #define MEDIA_TYPE_VIDEO	(1)
+
+#define payload_type_set_number(pt,n)   (pt)->user_data=(void*)((long)n);
+#define payload_type_get_number(pt)     ((int)(long)(pt)->user_data)
 
 
 class MediaEngine
@@ -43,7 +46,9 @@ public:
 
 	typedef enum _ME_MediaSessionState{
 		ME_SESSION_IDLE,
-		ME_SESSION_AUDIO_STREAMING
+		ME_SESSION_AUDIO_STREAM_STARTING,
+		ME_SESSION_AUDIO_STREAMING,
+		ME_SESSION_TERMINATING
 	} ME_MediaSessionState;
 
 	typedef enum _ME_Echo_Supression {
@@ -67,6 +72,8 @@ public:
 		float		round_trip_delay; /* Round trip propagation time in seconds if known, -1 if unknown. */
 		float download_bandwidth; /* download bandwidth measurement of received stream, expressed in kbit/s, including IP/UDP/RTP headers */
 		float upload_bandwidth; /* download bandwidth measurement of sent stream, expressed in kbit/s, including IP/UDP/RTP headers */
+		float local_late_rate; /**<percentage of packet received too late over last second*/
+		float local_loss_rate; /**<percentage of lost packet over last second*/
 	} MediaStats;
 
 	typedef struct _MediaSession
@@ -80,6 +87,8 @@ public:
 		struct _AudioStream *audiostream;
 
 		PayloadType*	audioSendCodec;
+		MSList *		audioRecvCodecs; //payload not owned
+
 
 		int audio_bw;	/*upload bandwidth used by audio */
 
@@ -122,7 +131,6 @@ public:
 
 	typedef struct _ME_PrivData
 	{
-
 		ME_state state;
 		RtpProfile *default_profile;
 		rtp_config_t rtp_conf;
@@ -148,6 +156,8 @@ public:
 
 		char *echo_canceller_state_str;
 
+		ms_mutex_t mutex; //ME lock
+
 	} ME_PrivData;
 
 
@@ -158,6 +168,8 @@ public:	// Constructors and destructors
 	~MediaEngine();
 
 public:	// Public functions
+
+	void Enable_Trace(FILE *file);
 
 	void Initialize();
 
@@ -171,7 +183,7 @@ public:	// Public functions
 
 	virtual ME_List* GetAvailableAudioCodecs() const;
 
-	virtual ME_Codec* GetCodec(int pt_number) const;
+	virtual ME_Codec* GetCodec(int pt_number, int clk_rate, const char * name) const;
 
 	virtual ME_List* GetAvaliableVideoCodecs() const;
 
@@ -181,15 +193,23 @@ public:	// Public functions
 
 	virtual void InitStreams(MediaSession* session, int local_audio_port, int local_video_port = -1);
 
-	virtual void StartStreams(MediaSession* session, PayloadType* sendAudioCodec, ME_List* recAudioCodecs, const char *cname, const char *remIp, const int remAudioPort, const int remVideoPort =-1);
+	virtual void StartStreams(MediaSession* session, PayloadType* sendAudioCodec, ME_List* recAudioCodecs, const char *cname, const char *remIp, const int remAudioPort, const int remVideoPort =-1, const bool_t sendAudio = TRUE);
 
 	virtual void StopStreams(MediaSession* session);
+
+	virtual void PauseStreams(MediaSession* session);
+
+	virtual void ResumeStreams(MediaSession* session);
+
+	virtual void UpdateStatistics(MediaSession* session);
 
 	virtual void MuteMicphone(bool_t val);
 
 	virtual void SendDTMF(MediaSession* session, char dtmf);
 
 	virtual bool_t IsMediaStreamStarted(MediaSession* session, int mediaType);
+
+	virtual void SetPlaybackGain(float gain);
 
 private: // Private functions
 
@@ -224,8 +244,10 @@ private: // Private functions
 	//Audio stream
 	void preempt_sound_resources();
 	void init_audio_stream(MediaSession* session, int local_port);
-	void start_audio_stream(MediaSession* session, const char *cname, const char *remIp, const int remport, bool_t muted, bool_t use_arc);
+	void start_audio_stream(MediaSession* session, const char *cname, const char *remIp, const int remport, bool_t muted, bool_t use_arc, bool_t sendAudio);
 	void stop_audio_stream(MediaSession* session);
+	void pause_audio_stream(MediaSession* session);
+	void resume_audio_stream(MediaSession* session);
 
 	// DTMF tone
 	void send_dtmf(const MediaSession* session, char dtmf);

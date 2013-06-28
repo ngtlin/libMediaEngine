@@ -44,7 +44,7 @@ include $(me-root-dir)/submodules/externals/openssl/Android.mk
 include $(me-root-dir)/submodules/oRTP/build/android/Android.mk
 
 include $(me-root-dir)/submodules/mediastreamer2/build/android/Android.mk
-include $(me-root-dir)/submodules/mediastreamer2/tests/Android.mk
+include $(me-root-dir)/submodules/mediastreamer2/tools/Android.mk
 
 ifeq ($(BUILD_SILK), 1)
 ifeq (,$(DUMP_VAR))
