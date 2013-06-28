@@ -90,6 +90,17 @@ RtpTimer posix_timer={	0,
 							
 #else //WIN32
 
+#ifdef WINAPI_FAMILY_PHONE_APP
+
+#include "winrttimer.h"
+
+RtpTimer posix_timer={	0,
+						winrt_timer_init,
+						winrt_timer_do,
+						winrt_timer_close,
+						{0, TIME_INTERVAL * 1000}};
+
+#else
 
 #include <windows.h>
 #include <mmsystem.h>
@@ -172,6 +183,7 @@ RtpTimer posix_timer={	0,
 						win_timer_do,
 						win_timer_close,
 						{0,TIME_INTERVAL * 1000}};
-							
+
+#endif
 
 #endif // _WIN32

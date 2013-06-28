@@ -99,7 +99,7 @@ struct _tcp_sockets {
 #endif
 #ifndef SOCKET_PROGRESS_TIMEOUT
 /* Timeout in milliseconds for response to SYN message */
-#define SOCKET_PROGRESS_TIMEOUT 1000
+#define SOCKET_PROGRESS_TIMEOUT 5000
 #endif
 
 #ifndef EXOSIP_MAX_SOCKETS
@@ -263,6 +263,25 @@ static int tcp_tl_open(void)
 				   (__FILE__, __LINE__, OSIP_ERROR, NULL,
 					"Cannot bind on port: %i\n", eXtl_tcp.proto_port));
 		return -1;
+	}
+	
+	if (eXtl_tcp.proto_family == AF_INET)
+	{
+		int tos = (eXosip.dscp << 2) & 0xFC;
+		res = setsockopt(sock, IPPROTO_IP, IP_TOS, (SOCKET_OPTION_VALUE)&tos, sizeof(tos));
+	} else {
+		int tos = (eXosip.dscp << 2) & 0xFC;
+#ifdef IPV6_TCLASS
+		res = setsockopt(sock, IPPROTO_IPV6, IPV6_TCLASS,
+			(SOCKET_OPTION_VALUE)&tos, sizeof(tos));
+#else
+		res = setsockopt(sock, IPPROTO_IPV6, IP_TOS,
+			(SOCKET_OPTION_VALUE)&tos, sizeof(tos));
+#endif
+	}
+	if (res==-1){
+		OSIP_TRACE(osip_trace(__FILE__, __LINE__, OSIP_INFO1, NULL,
+							"Setting tos on server socket failed: %s\n",strerror(ex_errno)));
 	}
 
 	tcp_socket = sock;
@@ -545,6 +564,7 @@ static int tcp_tl_read_message(fd_set * osip_fdset, fd_set * osip_wrset)
 			}
 #endif
 		} else {
+			int res;
 			tcp_socket_tab[pos].socket = sock;
 			tcp_socket_tab[pos].is_server=1;
 			OSIP_TRACE(osip_trace(__FILE__, __LINE__, OSIP_INFO1, NULL,
@@ -559,6 +579,25 @@ static int tcp_tl_read_message(fd_set * osip_fdset, fd_set * osip_wrset)
 				recvport = ntohs(((struct sockaddr_in *) &sa)->sin_port);
 			else
 				recvport = ntohs(((struct sockaddr_in6 *) &sa)->sin6_port);
+			
+			if (eXtl_tcp.proto_family == AF_INET)
+			{
+				int tos = (eXosip.dscp << 2) & 0xFC;
+				res = setsockopt(sock, IPPROTO_IP, IP_TOS, (SOCKET_OPTION_VALUE)&tos, sizeof(tos));
+			} else {
+				int tos = (eXosip.dscp << 2) & 0xFC;
+		#ifdef IPV6_TCLASS
+				res = setsockopt(sock, IPPROTO_IPV6, IPV6_TCLASS,
+					(SOCKET_OPTION_VALUE)&tos, sizeof(tos));
+		#else
+				res = setsockopt(sock, IPPROTO_IPV6, IP_TOS,
+					(SOCKET_OPTION_VALUE)&tos, sizeof(tos));
+		#endif
+			}
+			if (res==-1){
+				OSIP_TRACE(osip_trace(__FILE__, __LINE__, OSIP_INFO1, NULL,
+								  "Setting tos on child of server socket failed: %s\n",strerror(ex_errno)));
+			}
 
 #if defined(__arc__)
 			{
@@ -991,7 +1030,7 @@ static int _tcp_tl_connect_socket(char *host, int port)
 			int val=1;
 			if (setsockopt(sock,IPPROTO_TCP, TCP_NODELAY, (void*)&val, sizeof(val))==-1){
 				OSIP_TRACE(osip_trace(__FILE__, __LINE__, OSIP_ERROR, NULL,
-										  "Error setting TCP_NODELAY: %s\n", strerror(errno)));
+										  "Error setting TCP_NODELAY: %s\n", strerror(ex_errno)));
 			}else OSIP_TRACE(osip_trace
 					   (__FILE__, __LINE__, OSIP_INFO2, NULL,
 						"socket node:%s , socket %d, family:%d set to TCP_NODELAY\n",
@@ -1011,6 +1050,10 @@ static int _tcp_tl_connect_socket(char *host, int port)
 			res = setsockopt(sock, IPPROTO_IPV6, IP_TOS,
 				(SOCKET_OPTION_VALUE)&tos, sizeof(tos));
 	#endif
+		}
+		if (res==-1){
+			OSIP_TRACE(osip_trace(__FILE__, __LINE__, OSIP_INFO1, NULL,
+							  "Setting tos on client socket failed: %s\n",strerror(ex_errno)));
 		}
 
 		res = connect(sock, curinfo->ai_addr, curinfo->ai_addrlen);

@@ -2,6 +2,7 @@
 mediastreamer2_includedir=$(includedir)/mediastreamer2
 
 mediastreamer2_include_HEADERS= ice.h \
+				upnp_igd.h \
 				mscodecutils.h \
 				msfilter.h \
 				msqueue.h \
@@ -17,7 +18,6 @@ mediastreamer2_include_HEADERS= ice.h \
 				mediastream.h \
 				msv4l.h \
 				msvideo.h \
-				waveheader.h \
 				msvideoout.h \
 				msvolume.h \
 				mstee.h \

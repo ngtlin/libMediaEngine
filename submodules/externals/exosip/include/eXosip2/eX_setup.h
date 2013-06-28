@@ -92,6 +92,8 @@ extern "C"
   /* non standard option: need a compilation flag to activate */
 #define EXOSIP_OPT_KEEP_ALIVE_OPTIONS_METHOD (EXOSIP_OPT_BASE_OPTION+1000)
 
+#define EXOSIP_OPT_REGISTER_WITH_DATE (EXOSIP_OPT_BASE_OPTION+2000)
+
   struct eXosip_dns_cache
   {
     char host[1024];

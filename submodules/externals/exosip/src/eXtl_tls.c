@@ -106,7 +106,7 @@ SSL_CTX *initialize_client_ctx(const char *keyfile, const char *certfile,
 SSL_CTX *initialize_server_ctx(const char *keyfile, const char *certfile,
 							   const char *password, int transport);
 
-int verify_cb(int preverify_ok, X509_STORE_CTX * store);
+static int verify_cb(int preverify_ok, X509_STORE_CTX * store);
 
 static int tls_socket;
 static struct sockaddr_storage ai_addr;
@@ -121,12 +121,14 @@ static char tls_local_cn_name[128];
 static char tls_client_local_cn_name[128];
 
 static int tls_verify_client_certificate;
+static int tls_verify_client_cn;
 
 /* persistent connection */
 struct socket_tab {
 	int socket;
 	struct sockaddr ai_addr;
 	size_t ai_addrlen;
+	char canonical_host[256];
 	char remote_ip[65];
 	int remote_port;
 	char *previous_content;
@@ -154,7 +156,7 @@ struct socket_tab {
 #endif
 #ifndef SOCKET_PROGRESS_TIMEOUT
 /* Timeout in milliseconds for response to SYN message */
-#define SOCKET_PROGRESS_TIMEOUT 1000
+#define SOCKET_PROGRESS_TIMEOUT 5000
 #endif
 
 #ifndef EXOSIP_MAX_SOCKETS
@@ -176,6 +178,7 @@ static int tls_tl_init(void)
 	memset(&tls_local_cn_name, 0, sizeof(tls_local_cn_name));
 	memset(&tls_client_local_cn_name, 0, sizeof(tls_client_local_cn_name));
 	tls_verify_client_certificate = 0;
+	tls_verify_client_cn = 0;
 	return OSIP_SUCCESS;
 }
 
@@ -249,6 +252,7 @@ static int tls_tl_free(void)
 	memset(&tls_client_local_cn_name, 0, sizeof(tls_client_local_cn_name));
 	
 	tls_verify_client_certificate = 0;
+	tls_verify_client_cn = 0;
 
 	return OSIP_SUCCESS;
 }
@@ -747,7 +751,7 @@ static X509 *_tls_set_certificate(SSL_CTX * ctx, const char *cn)
 	return NULL;
 }
 
-int verify_cb(int preverify_ok, X509_STORE_CTX * store)
+static int verify_cb(int preverify_ok, X509_STORE_CTX * store)
 {
 	char buf[256];
 	X509 *err_cert;
@@ -1050,10 +1054,17 @@ eXosip_tls_ctx_error eXosip_tls_verify_certificate(int
 	return TLS_OK;
 }
 
+eXosip_tls_ctx_error eXosip_tls_verify_cn(int
+												   _tls_verify_client_cn)
+{
+	tls_verify_client_cn = _tls_verify_client_cn;
+	return TLS_OK;
+}
+
 SSL_CTX *initialize_client_ctx(const char *keyfile, const char *certfile,
 							   const char *password, int transport)
 {
-	SSL_METHOD *meth = NULL;
+	const SSL_METHOD *meth = NULL;
 	X509 *cert = NULL;
 	SSL_CTX *ctx;
 
@@ -1231,7 +1242,7 @@ ANDROID
 SSL_CTX *initialize_server_ctx(const char *keyfile, const char *certfile,
 							   const char *password, int transport)
 {
-	SSL_METHOD *meth = NULL;
+	const SSL_METHOD *meth = NULL;
 	SSL_CTX *ctx;
 	X509 *cert = NULL;
 
@@ -1878,6 +1889,18 @@ static int _tls_tl_check_connected()
 	return 0;
 }
 
+
+static int valid_certificate(const char *value, const char *CN)
+{
+	int lenc=strlen(CN);
+	int lenv=strlen(value);
+	if (lenc > 0 && CN[0] == '*') {
+		// wildcard pattern *.domain.xx.fr
+		if (lenv < lenc) return -1;
+		return osip_strcasecmp(value+lenv-(lenc-1), CN+1) ;
+	} else return osip_strcasecmp(value, CN);
+}
+
 static int _tls_tl_ssl_connect_socket(struct socket_tab *sockinfo)
 {
 	X509 *cert;
@@ -1998,15 +2021,19 @@ static int _tls_tl_ssl_connect_socket(struct socket_tab *sockinfo)
 			/*else -> I want to keep going ONLY when API didn't specified
 			   any SSL server certificate */
 		}
-#if 0
-		{
-			char peer_CN[65];
+#if 1
+		if (tls_verify_client_certificate && tls_verify_client_cn){
+			char peer_CN[256];
 			memset(peer_CN, 0, sizeof(peer_CN));
 			X509_NAME_get_text_by_NID(X509_get_subject_name(cert), NID_commonName,
 									  peer_CN, sizeof(peer_CN));
-			if (osip_strcasecmp(sockinfo->remote_ip, peer_CN) != 0) {
-				SSL_set_verify_result(m_pSSL,
+			if (0!=valid_certificate(sockinfo->canonical_host, peer_CN)) {
+				SSL_set_verify_result(sockinfo->ssl_conn,
 									  X509_V_ERR_APPLICATION_VERIFICATION + 1);
+				X509_free(cert);
+				OSIP_TRACE(osip_trace(__FILE__, __LINE__, OSIP_ERROR, NULL,
+								  "Certificate's subject CN doesn't match connection requested: %s != %s\n",peer_CN, sockinfo->canonical_host));
+				return -1;
 			}
 		}
 #endif
@@ -2480,7 +2507,7 @@ static int _tls_tl_find_socket(char *host, int port)
 }
 
 
-static int _tls_tl_connect_socket(char *host, int port)
+static int _tls_tl_connect_socket(char *host, int port, char *canonical_host)
 {
 	int pos;
 	int res;
@@ -2506,6 +2533,10 @@ static int _tls_tl_connect_socket(char *host, int port)
 	if (pos == EXOSIP_MAX_SOCKETS)
 		return -1;
 
+	OSIP_TRACE(osip_trace
+					   (__FILE__, __LINE__, OSIP_ERROR, NULL,
+						"_tls_tl_connect_socket with %s %s port %i\n",canonical_host, host,port));
+	
 	res = eXosip_get_addrinfo(&addrinfo, host, port, IPPROTO_TCP);
 	if (res)
 		return -1;
@@ -2754,6 +2785,7 @@ static int _tls_tl_connect_socket(char *host, int port)
 
 	if (sock > 0) {
 		tls_socket_tab[pos].socket = sock;
+		strncpy(tls_socket_tab[pos].canonical_host,canonical_host,sizeof(tls_socket_tab[pos].canonical_host)-1);
 
 		tls_socket_tab[pos].ai_addrlen = selected_ai_addrlen;
 		memset(&tls_socket_tab[pos].ai_addr, 0, sizeof(struct sockaddr));
@@ -2791,13 +2823,15 @@ tls_tl_send_message(osip_transaction_t * tr, osip_message_t * sip, char *host,
 {
 	size_t length = 0;
 	char *message;
-	int i;
+	int i,j;
+	char *canonical_host=host;
 
 	int pos;
 	osip_naptr_t *naptr_record=NULL;
 
 	SSL *ssl = NULL;
 
+	if (sip->req_uri) canonical_host=sip->req_uri->host;
 	if (host == NULL) {
 		host = sip->req_uri->host;
 		if (sip->req_uri->port != NULL)
@@ -2927,6 +2961,9 @@ tls_tl_send_message(osip_transaction_t * tr, osip_message_t * sip, char *host,
 		osip_generic_param_t *tag = NULL;
 		osip_message_get_route(sip, 0, &route);
 
+		if (route)
+			canonical_host=route->url->host;
+		
 		osip_to_get_tag(sip->to, &tag);
 		if (tag == NULL && route != NULL && route->url != NULL) {
 			osip_list_remove(&sip->routes, 0);
@@ -2968,7 +3005,7 @@ tls_tl_send_message(osip_transaction_t * tr, osip_message_t * sip, char *host,
 
 		/* Step 2: create new socket with host:port */
 		if (pos < 0) {
-			pos = _tls_tl_connect_socket(host, port);
+			pos = _tls_tl_connect_socket(host, port,canonical_host);
 		}
 		if (pos >= 0) {
 			out_socket = tls_socket_tab[pos].socket;
@@ -3078,9 +3115,15 @@ tls_tl_send_message(osip_transaction_t * tr, osip_message_t * sip, char *host,
 
 	SSL_set_mode(ssl, SSL_MODE_AUTO_RETRY);
 
+	i=0;
+	j=0;
 	while (1) {
-		i = SSL_write(ssl, (const void *) message, length);
-
+#define MAX(a,b) a>b?b:a
+#if TARGET_OS_IPHONE /*workaround to avoid SSL error on large messages*/
+		i = SSL_write(ssl, (const void *) (message+j), MAX(500,length-j));
+#else
+		i = SSL_write(ssl, (const void *)message,length);
+#endif
 		if (i <= 0) {
 			i = SSL_get_error(ssl, i);
 			if (i == SSL_ERROR_WANT_READ || i == SSL_ERROR_WANT_WRITE)
@@ -3089,9 +3132,11 @@ tls_tl_send_message(osip_transaction_t * tr, osip_message_t * sip, char *host,
 
 			osip_free(message);
 			return -1;
+		} else  {
+			j+=i;
 		}
 		
-		break;
+		if (j>=length) break;
 	}
 
 	osip_free(message);
@@ -3199,6 +3244,13 @@ eXosip_tls_ctx_error eXosip_tls_verify_certificate(int
 {
 	return -1; /* NOT IMPLEMENTED */
 }
+
+eXosip_tls_ctx_error eXosip_tls_verify_cn(int
+												   _tls_verify_client_cn)
+{
+	return -1; /* NOT IMPLEMENTED */
+}
+
 
 eXosip_tls_ctx_error eXosip_tls_use_server_certificate(const char
 													   *local_certificate_cn)

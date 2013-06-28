@@ -37,6 +37,8 @@
 #include <windows.h>
 #endif
 
+#define ACCEPT_DUPLICATE_INVITE 1
+
 extern eXosip_t eXosip;
 
 /* Private functions */

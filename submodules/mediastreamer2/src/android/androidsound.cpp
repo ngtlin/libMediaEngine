@@ -26,6 +26,8 @@
 #include "AudioRecord.h"
 #include "String8.h"
 
+#include "android_echo.h"
+
 #define NATIVE_USE_HARDWARE_RATE 1
 //#define TRACE_SND_WRITE_TIMINGS
 
@@ -40,8 +42,8 @@ static MSFilter * ms_android_snd_write_new(void);
 static Library *libmedia=0;
 static Library *libutils=0;
 
-static const int flowControlIntervalMs = 2500;
-static const int flowControlThresholdMs = 80;
+static const int flowControlIntervalMs = 1000;
+static const int flowControlThresholdMs = 40;
 
 static int std_sample_rates[]={
 	48000,44100,32000,22050,16000,8000,-1
@@ -219,6 +221,17 @@ static void android_snd_card_detect(MSSndCardManager *m){
 
 }
 
+static int sdk_version = 0;
+
+static void android_native_snd_card_init(MSSndCard *card) {
+	/* Get Android SDK version. */
+	JNIEnv *jni_env = ms_get_jni_env();
+	jclass version_class = jni_env->FindClass("android/os/Build$VERSION");
+	jfieldID fid = jni_env->GetStaticFieldID(version_class, "SDK_INT", "I");
+	sdk_version = jni_env->GetStaticIntField(version_class, fid);
+	ms_message("SDK version [%i] detected", sdk_version);
+}
+
 static void android_native_snd_card_uninit(MSSndCard *card){
 	
 	delete static_cast<AndroidNativeSndCardData*>(card->data);
@@ -227,7 +240,7 @@ static void android_native_snd_card_uninit(MSSndCard *card){
 MSSndCardDesc android_native_snd_card_desc={
 	"libmedia",
 	android_snd_card_detect,
-	NULL,
+	android_native_snd_card_init,
 	NULL,
 	NULL,
 	NULL,
@@ -243,9 +256,19 @@ MSSndCardDesc android_native_snd_card_desc={
 static MSSndCard * android_snd_card_new(void)
 {
 	MSSndCard * obj;
+	EchoCancellerParams params;
+	
 	obj=ms_snd_card_new(&android_native_snd_card_desc);
 	obj->name=ms_strdup("android sound card");
 	obj->data=new AndroidNativeSndCardData();
+	
+	if (android_sound_get_echo_params(&params)==0){
+		if (params.has_builtin_ec) obj->capabilities|=MS_SND_CARD_CAP_BUILTIN_ECHO_CANCELLER;
+		else obj->latency=params.delay;
+	}else{
+		obj->latency=250;
+		ms_warning("Model not echo-calibrated, using default delay value: %i ms",obj->latency); 
+	}
 	return obj;
 }
 
@@ -277,16 +300,18 @@ static void android_snd_read_cb(int event, void* user, void *p_info){
 	}
 	if (event==AudioRecord::EVENT_MORE_DATA){
 		AudioRecord::Buffer * info=reinterpret_cast<AudioRecord::Buffer*>(p_info);
-		mblk_t *m=allocb(info->size,0);
-		memcpy(m->b_wptr,info->raw,info->size);
-		m->b_wptr+=info->size;
-		ad->read_samples+=info->frameCount;
-		
-		ms_mutex_lock(&ad->mutex);
-		compute_timespec(ad);
-		putq(&ad->q,m);
-		ms_mutex_unlock(&ad->mutex);
-		//ms_message("android_snd_read_cb: got %i bytes",info->size);
+		if (info->size > 0) {
+			mblk_t *m=allocb(info->size,0);
+			memcpy(m->b_wptr,info->raw,info->size);
+			m->b_wptr+=info->size;
+			ad->read_samples+=info->frameCount;
+
+			ms_mutex_lock(&ad->mutex);
+			compute_timespec(ad);
+			putq(&ad->q,m);
+			ms_mutex_unlock(&ad->mutex);
+			//ms_message("android_snd_read_cb: got %i bytes",info->size);
+		}
 	}else if (event==AudioRecord::EVENT_OVERRUN){
 		ms_warning("AudioRecord overrun");
 	}
@@ -301,6 +326,7 @@ static void android_snd_read_preprocess(MSFilter *obj){
 	
 	ad->mFilter=obj;
 	ad->read_samples=0;
+	ad->started=FALSE;
 	ad->audio_source=AUDIO_SOURCE_VOICE_COMMUNICATION;
 	for(int i=0;i<2;i++){
 		ad->rec=new AudioRecord(ad->audio_source,
@@ -323,7 +349,6 @@ static void android_snd_read_preprocess(MSFilter *obj){
 	}
 
 	if (ad->rec != 0) {
-		ad->started=true;
 		ad->rec->start();
 	}
 
@@ -356,10 +381,12 @@ static void android_snd_read_process(MSFilter *obj){
 	AndroidSndReadData *ad=(AndroidSndReadData*)obj->data;
 	mblk_t *om;
 	ms_mutex_lock(&ad->mutex);
-	if ((ad->rec == 0) || !ad->started) {
+	if (ad->rec == 0 ) {
 		ms_mutex_unlock(&ad->mutex);
 		return;
 	}
+	if (!ad->started)
+		ad->started=TRUE; //so that the callback can now start to queue buffers.
 
 	while ((om=getq(&ad->q))!=NULL) {
 		//ms_message("android_snd_read_process: Outputing %i bytes",msgdsize(om));
@@ -388,6 +415,12 @@ static int android_snd_read_get_sample_rate(MSFilter *obj, void *param){
 static int android_snd_read_set_nchannels(MSFilter *obj, void *param){
 	AndroidSndReadData *ad=(AndroidSndReadData*)obj->data;
 	ad->nchannels=*((int*)param);
+	return 0;
+}
+
+static int android_snd_read_get_nchannels(MSFilter *obj, void *param){
+	AndroidSndReadData *ad=(AndroidSndReadData*)obj->data;
+	*((int*)param)=ad->nchannels;
 	return 0;
 }
 
@@ -429,6 +462,7 @@ MSFilterMethod android_snd_read_methods[]={
 	{MS_FILTER_SET_SAMPLE_RATE, android_snd_read_set_sample_rate},
 	{MS_FILTER_GET_SAMPLE_RATE, android_snd_read_get_sample_rate},
 	{MS_FILTER_SET_NCHANNELS, android_snd_read_set_nchannels},
+	{MS_FILTER_GET_NCHANNELS, android_snd_read_get_nchannels},
 	{MS_AUDIO_CAPTURE_FORCE_SPEAKER_STATE, android_snd_read_hack_speaker_state},
 	{0,NULL}
 };
@@ -489,6 +523,14 @@ static int android_snd_write_set_nchannels(MSFilter *obj, void *data){
 	return 0;
 }
 
+static int android_snd_write_get_nchannels(MSFilter *obj, void *data){
+	int *n=(int*)data;
+	AndroidSndWriteData *ad=(AndroidSndWriteData*)obj->data;
+	*n=ad->nchannels;
+	return 0;
+}
+
+
 static void android_snd_write_cb(int event, void *user, void * p_info){
 	AndroidSndWriteData *ad=(AndroidSndWriteData*)user;
 	
@@ -523,6 +565,9 @@ static void android_snd_write_cb(int event, void *user, void * p_info){
 		if (info->size > 0){
 			ms_bufferizer_read(&ad->bf,(uint8_t*)info->raw,info->size);
 			info->frameCount = info->size / 2;
+		}else{
+			/* we have an underrun (no more samples to deliver to the callback). We need to reset minBufferFilling*/
+			ad->minBufferFilling=-1;
 		}
 		ms_mutex_unlock(&ad->mutex);
 		ad->nbufs++;
@@ -550,6 +595,20 @@ static void android_snd_write_cb(int event, void *user, void * p_info){
 	}else ms_error("Untracked event %i",event);
 }
 
+static int channel_mask_for_audio_track(int nchannels) {
+	int channel_mask;
+	channel_mask = audio_channel_out_mask_from_count(nchannels);
+	if (sdk_version < 14) {
+		ms_message("Android version older than ICS, apply audio channel hack for AudioTrack");
+		if ((channel_mask & AUDIO_CHANNEL_OUT_MONO) == AUDIO_CHANNEL_OUT_MONO) {
+			channel_mask = 0x4;
+		} else if ((channel_mask & AUDIO_CHANNEL_OUT_STEREO) == AUDIO_CHANNEL_OUT_STEREO) {
+			channel_mask = 0x4|0x8;
+		}
+	}
+	return channel_mask;
+}
+
 static void android_snd_write_preprocess(MSFilter *obj){
 	AndroidSndWriteData *ad=(AndroidSndWriteData*)obj->data;
 	int play_buf_size;
@@ -569,7 +628,7 @@ static void android_snd_write_preprocess(MSFilter *obj){
 	ad->tr=new AudioTrack(ad->stype,
                      ad->rate,
                      AUDIO_FORMAT_PCM_16_BIT,
-                     audio_channel_out_mask_from_count(ad->nchannels),
+                     channel_mask_for_audio_track(ad->nchannels),
                      play_buf_size,
                      AUDIO_OUTPUT_FLAG_NONE, // AUDIO_OUTPUT_FLAG_NONE,
                      android_snd_write_cb, ad,notify_frames,0);
@@ -585,6 +644,10 @@ static void android_snd_write_preprocess(MSFilter *obj){
 	ad->mStarted=false;
 	ad->flowControlStart = obj->ticker->time;
 	ad->minBufferFilling = -1;
+}
+
+static int bytes_to_ms(AndroidSndWriteData *ad, int bytes){
+	return bytes*1000/(2*ad->nchannels*ad->rate);
 }
 
 static void android_snd_write_process(MSFilter *obj){
@@ -610,9 +673,12 @@ static void android_snd_write_process(MSFilter *obj){
 #endif
 	if (((uint32_t)(obj->ticker->time - ad->flowControlStart)) >= flowControlIntervalMs) {
 		int threshold = (flowControlThresholdMs * ad->nchannels * 2 * ad->rate) / 1000;
+		//ms_message("Time to flow control: minBufferFilling=%i, threshold=%i",ad->minBufferFilling, threshold);
 		if (ad->minBufferFilling > threshold) {
-			ms_warning("Too many samples waiting in sound writer, dropping %i bytes", threshold);
-			ms_bufferizer_skip_bytes(&ad->bf, threshold);
+			int drop=ad->minBufferFilling - (threshold/4); //keep a bit in order not to risk an underrun in the next period.
+			ms_warning("Too many samples waiting in sound writer (minBufferFilling=%i ms, threshold=%i ms), dropping %i ms", 
+					   bytes_to_ms(ad,ad->minBufferFilling), bytes_to_ms(ad,threshold), bytes_to_ms(ad,drop));
+			ms_bufferizer_skip_bytes(&ad->bf, drop);
 		}
 		ad->flowControlStart = obj->ticker->time;
 		ad->minBufferFilling = -1;
@@ -641,6 +707,7 @@ static MSFilterMethod android_snd_write_methods[]={
 	{MS_FILTER_SET_SAMPLE_RATE, android_snd_write_set_sample_rate},
 	{MS_FILTER_GET_SAMPLE_RATE, android_snd_write_get_sample_rate},
 	{MS_FILTER_SET_NCHANNELS, android_snd_write_set_nchannels},
+	{MS_FILTER_GET_NCHANNELS, android_snd_write_get_nchannels},
 	{0,NULL}
 };
 

@@ -1090,6 +1090,9 @@ int eXosip_set_option(int opt, const void *value)
 		/* 0x1A by default */
 		eXosip.dscp = val;
 		break;
+	case EXOSIP_OPT_REGISTER_WITH_DATE:
+		eXosip.register_with_dates=*(int*)value;
+		break;
 	default:
 		return OSIP_BADPARAMETER;
 	}

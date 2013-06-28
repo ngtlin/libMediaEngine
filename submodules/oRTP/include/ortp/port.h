@@ -123,7 +123,11 @@ int __ortp_thread_create(pthread_t *thread, pthread_attr_t *attr, void * (*routi
 #include <ws2tcpip.h>
 
 #ifdef _MSC_VER
+#ifdef ORTP_EXPORTS
 #define ORTP_PUBLIC	__declspec(dllexport)
+#else 
+#define ORTP_PUBLIC	__declspec(dllimport)
+#endif
 #pragma push_macro("_WINSOCKAPI_")
 #ifndef _WINSOCKAPI_
 #define _WINSOCKAPI_
@@ -148,8 +152,13 @@ typedef __int16 int16_t;
 
 
 typedef SOCKET ortp_socket_t;
+#ifdef WINAPI_FAMILY_PHONE_APP
+typedef CONDITION_VARIABLE ortp_cond_t;
+typedef SRWLOCK ortp_mutex_t;
+#else
 typedef HANDLE ortp_cond_t;
 typedef HANDLE ortp_mutex_t;
+#endif
 typedef HANDLE ortp_thread_t;
 
 #define ortp_thread_create	WIN_thread_create
@@ -227,7 +236,7 @@ ORTP_PUBLIC const char *getWinSocketError(int error);
 #ifdef __cplusplus
 extern "C"{
 #endif
-int gettimeofday (struct timeval *tv, void* tz);
+ORTP_PUBLIC int gettimeofday (struct timeval *tv, void* tz);
 #ifdef _WORKAROUND_MINGW32_BUGS
 char * WSAAPI gai_strerror(int errnum);
 #endif
@@ -320,12 +329,12 @@ ORTP_PUBLIC void ortp_shm_close(void *memory);
 
 #if (defined(WIN32) || defined(_WIN32_WCE)) && !defined(ORTP_STATIC)
 #ifdef ORTP_EXPORTS
-   #define VAR_DECLSPEC    __declspec(dllexport)
+   #define ORTP_VAR_PUBLIC    extern __declspec(dllexport)
 #else
-   #define VAR_DECLSPEC    __declspec(dllimport)
+   #define ORTP_VAR_PUBLIC    __declspec(dllimport)
 #endif
 #else
-   #define VAR_DECLSPEC    extern
+   #define ORTP_VAR_PUBLIC    extern
 #endif
 
 

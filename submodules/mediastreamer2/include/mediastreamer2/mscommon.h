@@ -28,6 +28,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "TargetConditionals.h"
 #endif
 
+#define MS_UNUSED(x) ((void)(x))
+
 #define ms_malloc	ortp_malloc
 #define ms_malloc0	ortp_malloc0
 #define ms_realloc	ortp_realloc
@@ -121,8 +123,9 @@ typedef int (*MSCompareFunc)(const void *a, const void *b);
 extern "C"{
 #endif
 
-void ms_thread_exit(void* ret_val);
+MS2_PUBLIC void ms_thread_exit(void* ret_val);
 MS2_PUBLIC MSList * ms_list_append(MSList *elem, void * data);
+MS2_PUBLIC MSList *ms_list_append_link(MSList *elem, MSList *new_elem);
 MS2_PUBLIC MSList * ms_list_prepend(MSList *elem, void * data);
 MS2_PUBLIC MSList * ms_list_free(MSList *elem);
 MS2_PUBLIC MSList * ms_list_concat(MSList *first, MSList *second);
@@ -254,6 +257,12 @@ MS2_PUBLIC int ms_discover_mtu(const char *destination_host);
  * This function will call ms_set_payload_max_size(mtu-[ipv6 header size]).
 **/
 MS2_PUBLIC void ms_set_mtu(int mtu);
+
+
+/**
+ * Get mediastreamer default mtu, used to compute the default RTP max payload size.
+**/
+MS2_PUBLIC int ms_get_mtu(void);
 
 /**
  * Declare how many cpu (cores) are available on the platform

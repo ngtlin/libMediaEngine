@@ -33,10 +33,12 @@
 #if (_WIN32_WINNT >= 0x0600)
 #include <delayimp.h>
 #undef ExternC
+#ifndef WINAPI_FAMILY_PHONE_APP
 #include <QOS2.h>
 #endif
+#endif
 
-#if defined(WIN32) || defined(_WIN32_WCE)
+#if (defined(WIN32) || defined(_WIN32_WCE)) && !defined(WINAPI_FAMILY_PHONE_APP)
 #include <Mswsock.h>
 #endif
 
@@ -322,13 +324,21 @@ rtp_session_set_local_addr (RtpSession * session, const char * addr, int rtp_por
 		session->rtp.socket=sock;
 		session->rtp.loc_port=rtp_port;
 		/*try to bind rtcp port */
-		if (rtcp_port<0) rtcp_port=rtp_port+1;
-		sock=create_and_bind(addr,rtcp_port,&sockfamily,session->reuseaddr);
+		if (rtcp_port<0) {
+			rtcp_port=rtp_port+1;
+			sock=create_and_bind(addr,rtcp_port,&sockfamily,session->reuseaddr);
+			if (sock==(ortp_socket_t)-1) {
+				sock=create_and_bind_random(addr,&sockfamily,&rtcp_port);
+			}
+		} else {
+			sock=create_and_bind(addr,rtcp_port,&sockfamily,session->reuseaddr);
+		}
 		if (sock!=(ortp_socket_t)-1){
 			session->rtcp.sockfamily=sockfamily;
 			session->rtcp.socket=sock;
-		}else{
-			ortp_warning("Could not create and bind rtcp socket.");
+		}else {
+			ortp_debug("Could not create and bind rtcp socket.");
+			return -1;
 		}
 		
 		/* set socket options (but don't change chosen states) */
@@ -563,6 +573,8 @@ int rtp_session_get_multicast_loopback(RtpSession *session)
 int rtp_session_set_dscp(RtpSession *session, int dscp){
 	int retval=0;
 	int tos;
+	int proto;
+	int value_type;
 #if (_WIN32_WINNT >= 0x0600)
 	OSVERSIONINFOEX ovi;
 #endif
@@ -573,7 +585,7 @@ int rtp_session_set_dscp(RtpSession *session, int dscp){
 	// Don't do anything if socket hasn't been created yet
 	if (session->rtp.socket == (ortp_socket_t)-1) return 0;
 
-#if (_WIN32_WINNT >= 0x0600)
+#if (_WIN32_WINNT >= 0x0600) && !defined(WINAPI_FAMILY_PHONE_APP)
 	memset(&ovi, 0, sizeof(ovi));
 	ovi.dwOSVersionInfoSize = sizeof(ovi);
 	GetVersionEx((LPOSVERSIONINFO) & ovi);
@@ -632,8 +644,6 @@ int rtp_session_set_dscp(RtpSession *session, int dscp){
 		}
 	} else {
 #endif
-		int proto;
-		int value_type;
 		// DSCP value is in the upper six bits of the TOS field
 		tos = (session->dscp << 2) & 0xFC;
 		switch (session->rtp.sockfamily) {
@@ -663,7 +673,7 @@ int rtp_session_set_dscp(RtpSession *session, int dscp){
 				ortp_error("Fail to set DSCP value on rtcp socket: %s",getSocketError());
 			}
 		}
-#if (_WIN32_WINNT >= 0x0600)
+#if (_WIN32_WINNT >= 0x0600) && !defined(WINAPI_FAMILY_PHONE_APP)
 	}
 #endif
 	return retval;
@@ -998,12 +1008,16 @@ rtp_session_rtp_send (RtpSession * session, mblk_t * m)
 	ortp_socket_t sockfd=session->rtp.socket;
 
 	hdr = (rtp_header_t *) m->b_rptr;
-	/* perform host to network conversions */
-	hdr->ssrc = htonl (hdr->ssrc);
-	hdr->timestamp = htonl (hdr->timestamp);
-	hdr->seq_number = htons (hdr->seq_number);
-	for (i = 0; i < hdr->cc; i++)
-		hdr->csrc[i] = htonl (hdr->csrc[i]);
+	if (hdr->version == 0) {
+		/* We are probably trying to send a STUN packet so don't change its content. */
+	} else {
+		/* perform host to network conversions */
+		hdr->ssrc = htonl (hdr->ssrc);
+		hdr->timestamp = htonl (hdr->timestamp);
+		hdr->seq_number = htons (hdr->seq_number);
+		for (i = 0; i < hdr->cc; i++)
+			hdr->csrc[i] = htonl (hdr->csrc[i]);
+	}
 
 	if (session->flags & RTP_SOCKET_CONNECTED) {
 		destaddr=NULL;

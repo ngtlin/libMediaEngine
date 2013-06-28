@@ -55,6 +55,10 @@ void ortp_set_log_level_mask(int levelmask){
 	__ortp_log_mask=levelmask;
 }
 
+int ortp_get_log_level_mask(void) {
+	return __ortp_log_mask;
+}
+
 char * ortp_strdup_vprintf(const char *fmt, va_list ap)
 {
 	/* Guess we need no more than 100 bytes. */

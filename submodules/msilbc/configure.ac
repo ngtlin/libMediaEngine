@@ -2,7 +2,7 @@
 AC_INIT([msilbc],[2.0.3])
 
 # require at least this autoconf version
-AC_PREREQ(2.64)
+AC_PREREQ(2.63)
 
 # set up the directory structure
 AC_CONFIG_SRCDIR([ilbc.c])
@@ -21,8 +21,29 @@ AC_ARG_ENABLE([20ms-frames], [AS_HELP_STRING([--enable-20ms-frames],
 # initialize automake
 AM_INIT_AUTOMAKE([tar-ustar])
 
+AC_CANONICAL_SYSTEM
+
+
 # initialize libtool
+AC_LIBTOOL_WIN32_DLL
 LT_INIT([disable-static])
+
+case $target_os in 
+	*mingw*)
+		mingw_found=yes
+	;;
+esac
+
+AM_CONDITIONAL(BUILD_WIN32, test x$mingw_found = xyes)
+
+AC_CONFIG_COMMANDS([libtool-hacking],[
+if test "$mingw_found" = "yes" ; then
+	AC_MSG_NOTICE([Hacking libtool to work with mingw...])
+	sed -e 's/\*\" \$a_deplib \"\*/\*/' < ./libtool > libtool.tmp
+	cp -f ./libtool.tmp ./libtool
+	rm -f ./libtool.tmp
+fi
+],[mingw_found=$mingw_found])
 
 # check for libraries that have pkg-config files installed
 PKG_CHECK_MODULES(ORTP, ortp >= 0.16.0)
@@ -32,6 +53,8 @@ PKG_CHECK_MODULES(ILBC, ilbc >= 0.0.0)
 # create the following files from their .in counterparts
 AC_CONFIG_FILES([
   Makefile
+  msilbc.iss
+  msilbc.spec
 ])
 AC_OUTPUT
 

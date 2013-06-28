@@ -35,7 +35,9 @@
 #if (_WIN32_WINNT >= 0x0600)
 #include <delayimp.h>
 #undef ExternC /* avoid redefinition... */
+#ifndef WINAPI_FAMILY_PHONE_APP
 #include <QOS2.h>
+#endif
 #endif
 
 extern mblk_t *rtcp_create_simple_bye_packet(uint32_t ssrc, const char *reason);
@@ -593,7 +595,7 @@ rtp_session_signal_disconnect_by_callback (RtpSession * session, const char *sig
 
 
 /**
- * sets the initial sequence number of a sending session.
+ * Set the initial sequence number for outgoing stream..
  * @param session		a rtp session freshly created.
  * @param addr			a 16 bit unsigned number.
  *
@@ -603,8 +605,18 @@ void rtp_session_set_seq_number(RtpSession *session, uint16_t seq){
 }
 
 
+/**
+ * Get the current sequence number for outgoing stream.
+**/
 uint16_t rtp_session_get_seq_number(RtpSession *session){
 	return session->rtp.snd_seq;
+}
+
+/**
+ * Returns the highest extended sequence number received.
+**/
+uint32_t rtp_session_get_rcv_ext_seq_number(RtpSession *session){
+	return session->rtp.hwrcv_extseq;
 }
 
 
@@ -891,23 +903,26 @@ __rtp_session_sendm_with_ts (RtpSession * session, mblk_t *mp, uint32_t packet_t
 	rtp=(rtp_header_t*)mp->b_rptr;
 	
 	packsize = msgdsize(mp) ;
-	
-	rtp->timestamp=packet_ts;
-	if (session->snd.telephone_events_pt==rtp->paytype)
-	{
-		rtp->seq_number = session->rtp.snd_seq;
-		session->rtp.snd_seq++;
+
+	if (rtp->version == 0) {
+		/* We are probably trying to send a STUN packet so don't change its content. */
+	} else {
+		rtp->timestamp=packet_ts;
+		if (session->snd.telephone_events_pt==rtp->paytype)
+		{
+			rtp->seq_number = session->rtp.snd_seq;
+			session->rtp.snd_seq++;
+		}
+		else
+			session->rtp.snd_seq=rtp->seq_number+1;
+		session->rtp.snd_last_ts = packet_ts;
+
+		ortp_global_stats.sent += packsize;
+		stream->sent_payload_bytes+=packsize-RTP_FIXED_HEADER_SIZE;
+		stream->stats.sent += packsize;
+		ortp_global_stats.packet_sent++;
+		stream->stats.packet_sent++;
 	}
-	else
-		session->rtp.snd_seq=rtp->seq_number+1;
-	session->rtp.snd_last_ts = packet_ts;
-
-
-	ortp_global_stats.sent += packsize;
-	stream->sent_payload_bytes+=packsize-RTP_FIXED_HEADER_SIZE;
-	stream->stats.sent += packsize;
-	ortp_global_stats.packet_sent++;
-	stream->stats.packet_sent++;
 
 	error = rtp_session_rtp_send (session, mp);
 	/*send RTCP packet if needed */
@@ -1413,7 +1428,7 @@ void rtp_session_uninit (RtpSession * session)
 	if (session->net_sim_ctx)
 		ortp_network_simulator_destroy(session->net_sim_ctx);
 
-#if (_WIN32_WINNT >= 0x0600)
+#if (_WIN32_WINNT >= 0x0600) && !WINAPI_FAMILY_APP
 	if (session->rtp.QoSFlowID != 0)
     {
 		OSVERSIONINFOEX ovi;

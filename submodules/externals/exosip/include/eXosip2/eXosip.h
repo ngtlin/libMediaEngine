@@ -472,6 +472,16 @@ extern "C"
   */
   eXosip_tls_ctx_error eXosip_tls_verify_certificate (int _tls_verify_client_certificate);
 
+/**
+  *	Configure to accept/reject common name check with remote hostname.
+  * NOTE: default is to accept (0) the certificates with common name not corresponding with hostname
+  *
+  *	@param _tls_verify_client_cn  ">0": refuse the certificates with a common name not corresponding with hostname
+  *
+  *	@return  the eXosip_tls_ctx_error code
+  */
+eXosip_tls_ctx_error eXosip_tls_verify_cn (int _tls_verify_client_cn);
+
 /** @} */
 
 #ifdef __cplusplus

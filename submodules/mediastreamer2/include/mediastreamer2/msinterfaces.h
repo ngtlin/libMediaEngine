@@ -79,7 +79,7 @@ typedef enum _MSPlayerState MSPlayerState;
 
 /**open a media file*/
 #define MS_PLAYER_OPEN \
-	MS_FILTER_METHOD(MSFilterPlayerInterface,0,const char *)
+	MS_FILTER_METHOD(MSFilterPlayerInterface,0,const char )
 
 #define MS_PLAYER_START \
 	MS_FILTER_METHOD_NO_ARG(MSFilterPlayerInterface,1)
@@ -94,7 +94,39 @@ typedef enum _MSPlayerState MSPlayerState;
 	MS_FILTER_METHOD(MSFilterPlayerInterface,4,int)
 
 #define MS_PLAYER_GET_STATE \
-	MS_FILTER_METHOD(MSFilterPlayerInterface,5,int)
+	MS_FILTER_METHOD(MSFilterPlayerInterface,5,MSPlayerState)
+	
+	
+
+/**
+  * Interface definitions for recorders
+**/
+
+enum _MSRecorderState{
+	MSRecorderClosed,
+	MSRecorderPaused,
+	MSRecorderRunning
+};
+
+typedef enum _MSRecorderState MSRecorderState;
+
+/**open a media file for recording*/
+#define MS_RECORDER_OPEN \
+	MS_FILTER_METHOD(MSFilterRecorderInterface,0,const char )
+
+#define MS_RECORDER_START \
+	MS_FILTER_METHOD_NO_ARG(MSFilterRecorderInterface,1)
+
+#define MS_RECORDER_PAUSE \
+	MS_FILTER_METHOD_NO_ARG(MSFilterRecorderInterface,2)
+
+#define MS_RECORDER_CLOSE \
+	MS_FILTER_METHOD_NO_ARG(MSFilterRecorderInterface,3)
+
+#define MS_RECORDER_GET_STATE \
+	MS_FILTER_METHOD(MSFilterRecorderInterface,5,MSRecorderState)
+	
+	
 
 
 /** Interface definitions for echo cancellers */
@@ -139,9 +171,12 @@ typedef enum _MSPlayerState MSPlayerState;
 #define MS_VIDEO_CAPTURE_SET_DEVICE_ORIENTATION \
 	MS_FILTER_METHOD(MSFilterVideoCaptureInterface,0,int)
 
-/** Interface definitions for decoder */
-#define MS_DECODER_HAVE_PLC \
-	MS_FILTER_METHOD(MSFilterDecoderInterface,0,int)
+/** Interface definitions for audio decoder */
+
+#define MS_AUDIO_DECODER_HAVE_PLC \
+	MS_FILTER_METHOD(MSFilterAudioDecoderInterface,0,int)
+	
+#define MS_DECODER_HAVE_PLC MS_AUDIO_DECODER_HAVE_PLC /*for backward compatibility*/
 
 /** Interface definitions for video encoders */
 #define MS_VIDEO_ENCODER_HAS_BUILTIN_CONVERTER \
@@ -154,5 +189,13 @@ typedef enum _MSPlayerState MSPlayerState;
 /* Start numbering from the end for hacks */
 #define MS_AUDIO_CAPTURE_FORCE_SPEAKER_STATE \
 	MS_FILTER_METHOD(MSFilterAudioCaptureInterface, 255, bool_t)
+
+/** Interface definitions for audio encoder */
+#define MS_AUDIO_ENCODER_SET_PTIME \
+	MS_FILTER_METHOD(MSFilterAudioEncoderInterface,0,int)
+	
+#define MS_AUDIO_ENCODER_GET_PTIME \
+	MS_FILTER_METHOD(MSFilterAudioEncoderInterface,1,int)
+
 
 #endif

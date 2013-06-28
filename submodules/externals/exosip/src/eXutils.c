@@ -876,6 +876,8 @@ _eXosip_srv_lookup(osip_message_t * sip, osip_naptr_t **naptr_record)
 
 	if (MSG_IS_REQUEST(sip)) {
 		osip_route_t *route;
+		osip_uri_t *uri;
+		osip_uri_param_t *maddr_param;
 
 		if (sip->sip_method==NULL)
 			return OSIP_BADPARAMETER;
@@ -888,32 +890,30 @@ _eXosip_srv_lookup(osip_message_t * sip, osip_naptr_t **naptr_record)
 			if (lr_param == NULL)
 				route = NULL;
 		}
-
+		port = 5060;
+		host = NULL;
+		
 		if (route != NULL) {
-			port = 5060;
-			if (route->url->port != NULL) {
-				port = osip_atoi(route->url->port);
-				use_srv = 0;
-			}
-			host = route->url->host;
-		} else {
-			/* search for maddr parameter */
-			osip_uri_param_t *maddr_param = NULL;
-
-			osip_uri_uparam_get_byname(sip->req_uri, "maddr", &maddr_param);
-			host = NULL;
-			if (maddr_param != NULL && maddr_param->gvalue != NULL)
-				host = maddr_param->gvalue;
-
-			port = 5060;
-			if (sip->req_uri->port != NULL) {
-				use_srv = 0;
-				port = osip_atoi(sip->req_uri->port);
-			}
-
-			if (host == NULL)
-				host = sip->req_uri->host;
+			uri=route->url;
+		}else {
+			uri=sip->req_uri;
 		}
+		
+		/* search for maddr parameter */
+		maddr_param = NULL;
+
+		osip_uri_uparam_get_byname(uri, "maddr", &maddr_param);
+		
+		if (maddr_param != NULL && maddr_param->gvalue != NULL)
+			host = maddr_param->gvalue;
+
+		if (uri->port != NULL) {
+			use_srv = 0;
+			port = osip_atoi(uri->port);
+		}
+
+		if (host == NULL)
+			host = uri->host;
 	} else {
 		osip_generic_param_t *maddr;
 
