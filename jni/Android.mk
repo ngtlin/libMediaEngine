@@ -10,8 +10,7 @@ endif
 ifeq ($(BUILD_G729),)
 BUILD_G729=0
 endif
-#Lin BUILD_SRTP=1
-BUILD_SRTP=0
+
 ifeq ($(TARGET_ARCH_ABI),armeabi)
 $(error "STOP video not supported on target armeabi devices!")
 endif
@@ -95,6 +94,7 @@ endif
 endif
 
 ifeq ($(BUILD_SRTP), 1)
+$(info Build SRTP support)
 include $(me-root-dir)/submodules/externals/build/srtp/Android.mk
 endif
 

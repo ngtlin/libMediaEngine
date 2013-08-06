@@ -1,3 +1,4 @@
+$(info Building SRTP support ...)
 
 LOCAL_PATH:= $(call my-dir)/../../srtp
 include $(CLEAR_VARS)
@@ -54,7 +55,9 @@ LOCAL_C_INCLUDES += \
 # Build dynamic and static versions
 ifeq ($(TARGET_ARCH_ABI),armeabi-v7a)
 LOCAL_MODULE:= libsrtp
-include $(BUILD_SHARED_LIBRARY)
+#Lin modification build static lib
+#include $(BUILD_SHARED_LIBRARY)
+include $(BUILD_STATIC_LIBRARY)
 else
 LOCAL_MODULE:= libsrtp-static
 include $(BUILD_STATIC_LIBRARY)

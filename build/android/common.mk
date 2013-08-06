@@ -96,7 +96,6 @@ endif
 LOCAL_STATIC_LIBRARIES += libspeex 
 
 ifeq ($(BUILD_SRTP), 1)
-$(error SRTP building included!!!)
 	LOCAL_C_INCLUDES += $(SRTP_C_INCLUDE)
 endif
 

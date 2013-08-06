@@ -6,7 +6,7 @@ APP_STL := stlport_static
 
 # define me-root-dir to media engine base dir
 BUILD_MS2 := 1
-BUILD_SRTP := 0
+BUILD_SRTP := 1
 me-root-dir:=$(APP_PROJECT_PATH)/../../../
 
 $(info me-root-dir=$(me-root-dir))

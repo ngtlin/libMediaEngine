@@ -12,6 +12,7 @@
 
 
 #include <ortp/rtp.h>
+#include <ortp/b64.h>
 
 #if defined(ANDROID)
 #include <android/log.h>
@@ -65,7 +66,7 @@
 #define DEFAULT_AUDIO_DSCP		 	(0x2e)  // 48, default for voice (realtime)
 
 #define ENABLE_AUDIO_ADAPTIVE_JITT_COMP 	(1)		// Adative Jitter compensation for audio
-#define ENABLE_AUDIO_NO_XMIT_ON_MUTE		(1)		// When audio is muted, no transmission
+#define ENABLE_AUDIO_NO_XMIT_ON_MUTE		(0)		// When audio is muted, no transmission
 #define AUDIO_RTP_JITTER_TIME 	 			(100) 	// Nominal audio jitter buffer size in milliseconds
 #define NO_RTP_TIMEOUT						(30) 	// RTP timeout in seconds: when no RTP or RTCP
 
@@ -104,7 +105,6 @@ static void ME_Android_Log_Handler(OrtpLogLevel lev, const char *fmt, va_list ar
 }
 #endif
 
-
 // Constructors and destructors
 MediaEngine::~MediaEngine()
 {
@@ -132,8 +132,8 @@ void MediaEngine::Initialize()
 {
 #ifdef DEBUG
 	ms_message("**** Enable Debug ******\n");
-	ortp_set_log_level_mask(ORTP_DEBUG|ORTP_MESSAGE|ORTP_WARNING|ORTP_ERROR|ORTP_FATAL);
 	ortp_set_log_handler((OrtpLogFunc)ME_Android_Log_Handler);
+	ortp_set_log_level_mask(ORTP_DEBUG|ORTP_MESSAGE|ORTP_WARNING|ORTP_ERROR|ORTP_FATAL);
 #endif //#DEBUG_MEDIAENGINE
 
 	ms_message("Initializing MediaEngine %d.%d", ME_MAJAR_VER, ME_MINOR_VER);
@@ -238,6 +238,9 @@ void MediaEngine::Initialize()
 	if (ENABLE_AUDIO_ADAPTIVE_JITT_COMP == 0) {
 		mData->rtp_conf.audio_adaptive_jitt_comp_enabled = FALSE;
 	} else {
+#if defined(ANDROID)
+		__android_log_write(ANDROID_LOG_INFO, "*ME_N*", "*** Audio adaptive jittering is ON ***");
+#endif
 		mData->rtp_conf.audio_adaptive_jitt_comp_enabled = TRUE;
 	}
 
@@ -273,7 +276,7 @@ void MediaEngine::Uninitialize()
 	while (mData->sessions)
 	{
 		MediaSession *theSession = (MediaSession *)mData->sessions->data;
-		terminate_session(theSession);
+		DeleteSession(theSession);
 
 		usleep(50000);
 	}
@@ -336,6 +339,15 @@ ME_Codec* MediaEngine::GetCodec(int pt_number, int clk_rate, const char * name) 
 	return NULL;
 }
 
+const char* MediaEngine::GetAudioStreamSessionKey(MediaSession* session)
+{
+	const char *key = NULL;
+	ms_mutex_lock(&mData->mutex);
+	key = session->as->crypto[0].master_key;
+	ms_mutex_unlock(&mData->mutex);
+	return key;
+}
+
 MediaEngine::MediaSession* MediaEngine::CreateSession()
 {
 	ms_mutex_lock(&mData->mutex);
@@ -353,6 +365,14 @@ MediaEngine::MediaSession* MediaEngine::CreateSession()
 		ms_message("Memory error ...");
 		ms_mutex_unlock(&mData->mutex);
 		return NULL;
+	} else {
+		session->as = (ME_AudioStream *)ms_new0(ME_AudioStream, 1);
+		if (session->as == NULL) {
+			ms_message("Memory error ...");
+			ms_free(session);
+			ms_mutex_unlock(&mData->mutex);
+			return NULL;
+		}
 	}
 
 	preempt_sound_resources();
@@ -362,6 +382,11 @@ MediaEngine::MediaSession* MediaEngine::CreateSession()
 	session->stats[MEDIA_TYPE_AUDIO].type = MEDIA_TYPE_AUDIO;
 	session->stats[MEDIA_TYPE_AUDIO].received_rtcp = NULL;
 	session->stats[MEDIA_TYPE_AUDIO].sent_rtcp = NULL;
+	//generate session key, we support currently only one crypto algo
+	session->as->crypto[0].tag = 1;
+	session->as->crypto[0].algo = AES_128_SHA1_80;
+	if (!generate_b64_crypto_key(30, session->as->crypto[0].master_key))
+		session->as->crypto[0].algo = AES_128_NO_AUTH; //misuse the enum value
 
 	if (add_session(session)!= 0)
 	{
@@ -370,6 +395,7 @@ MediaEngine::MediaSession* MediaEngine::CreateSession()
 		__android_log_write(ANDROID_LOG_DEBUG, "*ME_N*", "Not possible at failing of add_session ... weird!!!");
 #endif
 		ms_free(session);
+		ms_free(session->as);
 		ms_mutex_unlock(&mData->mutex);
 		return NULL;
 	}
@@ -417,6 +443,7 @@ int MediaEngine::DeleteSession(MediaSession* session)
 			ms_free(session->audioRecvCodecs);
 			session->audioRecvCodecs = NULL;
 		}
+		ms_free(session->as);
 	    ms_free(session);
 		ms_mutex_unlock(&mData->mutex);
 		return -1;
@@ -427,6 +454,7 @@ int MediaEngine::DeleteSession(MediaSession* session)
 		ms_free(session->audioRecvCodecs);
 		session->audioRecvCodecs = NULL;
 	}
+	ms_free(session->as);
     ms_free(session);
 	ms_mutex_unlock(&mData->mutex);
 #if defined(ANDROID)
@@ -444,12 +472,12 @@ void MediaEngine::InitStreams(MediaSession* session, int local_audio_port, int l
 
     init_audio_stream(session, local_audio_port);
 
-    audio_stream_prepare_sound(session->audiostream, mData->sound_conf.play_sndcard, mData->sound_conf.capt_sndcard);
+    audio_stream_prepare_sound(session->as->audiostream, mData->sound_conf.play_sndcard, mData->sound_conf.capt_sndcard);
 
 	ms_mutex_unlock(&mData->mutex);
 }
 
-void MediaEngine::StartStreams(MediaSession* session, PayloadType* sendAudioCodec, ME_List* recAudioCodecs, const char *cname, const char *remIp, const int remAudioPort, const int remVideoPort, const bool_t sendAudio) {
+void MediaEngine::StartStreams(MediaSession* session, PayloadType* sendAudioCodec, ME_List* recAudioCodecs, const char *cname, const char *remIp, const int remAudioPort, const int remVideoPort, const bool_t sendAudio, const char* audio_rcv_key) {
 
 	if (session == NULL) {
 		ms_message("Session pointer NULL!!!");
@@ -461,7 +489,7 @@ void MediaEngine::StartStreams(MediaSession* session, PayloadType* sendAudioCode
 
 	ms_mutex_lock(&mData->mutex);
 
-	if (session->audiostream == NULL) {
+	if (session->as->audiostream == NULL) {
 		ms_message("Audio stream not yet initialized!!!");
 #if defined(ANDROID)
 		__android_log_write(ANDROID_LOG_DEBUG, "*ME_N*", "ME::StartStreams, Audio stream not yet initialized!");
@@ -494,7 +522,7 @@ void MediaEngine::StartStreams(MediaSession* session, PayloadType* sendAudioCode
 	session->audioSendCodec = sendAudioCodec;
 
 
-	start_audio_stream(session, cname, remIp, remAudioPort, session->all_muted, ENABLE_ARC, sendAudio);
+	start_audio_stream(session, cname, remIp, remAudioPort, session->all_muted, ENABLE_ARC, sendAudio, audio_rcv_key);
 
 	ms_mutex_unlock(&mData->mutex);
 }
@@ -529,10 +557,10 @@ void MediaEngine::ResumeStreams(MediaSession* session) {
 
 void MediaEngine::UpdateStatistics(MediaSession* session) {
 	ms_mutex_lock(&mData->mutex);
-	if (session->audiostream!=NULL) {
+	if (session->as->audiostream!=NULL) {
 		//pumping
-		media_stream_iterate(&session->audiostream->ms);
-		const MSQualityIndicator* qi= media_stream_get_quality_indicator(&(session->audiostream->ms));
+		media_stream_iterate(&session->as->audiostream->ms);
+		const MSQualityIndicator* qi= media_stream_get_quality_indicator(&(session->as->audiostream->ms));
 		if (qi) {
 			session->stats[MEDIA_TYPE_AUDIO].local_loss_rate = ms_quality_indicator_get_local_loss_rate(qi);
 			session->stats[MEDIA_TYPE_AUDIO].local_late_rate = ms_quality_indicator_get_local_late_rate(qi);
@@ -544,11 +572,10 @@ void MediaEngine::UpdateStatistics(MediaSession* session) {
 #endif
 		}
 	}
+
+	background_tasks(session, 1);
+
 	ms_mutex_unlock(&mData->mutex);
-#ifdef DEBUG
-	//Just for test purpose
-	background_tasks(session, false);
-#endif
 }
 
 /**
@@ -566,7 +593,7 @@ void MediaEngine::MuteMicphone(bool_t val) {
     	ms_mutex_unlock(&mData->mutex);
         return;
     } else {
-    	st=session->audiostream;
+    	st=session->as->audiostream;
         session->audio_muted=val;
     }
 
@@ -590,8 +617,8 @@ bool_t MediaEngine::IsMediaStreamStarted(MediaSession* session, int mediaType) {
 	bool_t result = FALSE;
 
 	ms_mutex_lock(&mData->mutex);
-	if (mediaType == MEDIA_TYPE_AUDIO && session->audiostream) {
-		result = audio_stream_started(session->audiostream);
+	if (mediaType == MEDIA_TYPE_AUDIO && session->as->audiostream) {
+		result = audio_stream_started(session->as->audiostream);
     }
 	ms_mutex_unlock(&mData->mutex);
 
@@ -614,12 +641,12 @@ void MediaEngine::init_audio_stream(MediaSession *session, int local_port) {
 	AudioStream *audiostream;
 	int dscp; //what shall we do with DSCP?
 
-	if (session->audiostream != NULL) return;
+	if (session->as->audiostream != NULL) return;
 
 	//save the port
 	session->audio_port = local_port;
 
-	session->audiostream=audiostream=audio_stream_new(session->audio_port,session->audio_port+1, FALSE); //no IPv6 support
+	session->as->audiostream=audiostream=audio_stream_new(session->audio_port,session->audio_port+1, FALSE); //no IPv6 support
 	//set default DSCP
 	audio_stream_set_dscp(audiostream, DEFAULT_AUDIO_DSCP);
 
@@ -655,7 +682,8 @@ void MediaEngine::init_audio_stream(MediaSession *session, int local_port) {
 	rtp_session_register_event_queue(audiostream->ms.session, session->audiostream_app_evq);
 }
 
-void MediaEngine::start_audio_stream(MediaSession* session, const char *cname, const char *remIp, const int remport, bool_t muted, bool_t use_arc, bool_t sendAudio) {
+void MediaEngine::start_audio_stream(MediaSession* session, const char *cname, const char *remIp, const int remport, bool_t muted, bool_t use_arc,
+		bool_t sendAudio, const char* rcv_key) {
 #if defined(ANDROID)
 	__android_log_write(ANDROID_LOG_DEBUG, "*ME_N*", "start_audio_stream ...");
 #endif
@@ -696,10 +724,10 @@ void MediaEngine::start_audio_stream(MediaSession* session, const char *cname, c
 
 		used_pt = payload_type_get_number(session->audioSendCodec);
 
-		audio_stream_enable_adaptive_bitrate_control(session->audiostream, use_arc);
-		audio_stream_enable_adaptive_jittcomp(session->audiostream, is_audio_adaptive_jittcomp_enabled());
+		audio_stream_enable_adaptive_bitrate_control(session->as->audiostream, use_arc);
+		audio_stream_enable_adaptive_jittcomp(session->as->audiostream, is_audio_adaptive_jittcomp_enabled());
 		int result = audio_stream_start_now(
-				session->audiostream,
+				session->as->audiostream,
 				session->audio_profile, remIp, remport, remport+1,
 				used_pt,
 				mData->rtp_conf.audio_jitt_comp,
@@ -716,14 +744,22 @@ void MediaEngine::start_audio_stream(MediaSession* session, const char *cname, c
 		post_configure_audio_stream(session);
 
 		if (muted) {
-			audio_stream_set_mic_gain(session->audiostream, 0);
+			audio_stream_set_mic_gain(session->as->audiostream, 0);
 		}
 
 		if (!sendAudio) {
-			audio_stream_mute_rtp(session->audiostream, false);
+			audio_stream_mute_rtp(session->as->audiostream, false);
 		}
 
-		audio_stream_set_rtcp_information(session->audiostream, cname, rtcp_tool);
+		audio_stream_set_rtcp_information(session->as->audiostream, cname, rtcp_tool);
+
+		if (rcv_key) {
+			 audio_stream_enable_srtp(session->as->audiostream,
+					 session->as->crypto[0].algo,
+					 session->as->crypto[0].master_key,
+			         rcv_key);
+			 session->audiostream_encrypted=TRUE;
+		}
 
 		session->state = ME_SESSION_AUDIO_STREAMING;
 	} else if (!session->audio_profile){
@@ -738,15 +774,15 @@ void MediaEngine::start_audio_stream(MediaSession* session, const char *cname, c
 }
 
 void MediaEngine::stop_audio_stream(MediaSession *session) {
-	if (session->audiostream != NULL) {
-		rtp_session_unregister_event_queue(session->audiostream->ms.session, session->audiostream_app_evq);
+	if (session->as->audiostream != NULL) {
+		rtp_session_unregister_event_queue(session->as->audiostream->ms.session, session->audiostream_app_evq);
 		ortp_ev_queue_flush(session->audiostream_app_evq);
 		ortp_ev_queue_destroy(session->audiostream_app_evq);
 		session->audiostream_app_evq=NULL;
 
-		if (session->audiostream->ec) {
+		if (session->as->audiostream->ec) {
 			const char *state_str=NULL;
-			ms_filter_call_method(session->audiostream->ec, MS_ECHO_CANCELLER_GET_STATE_STRING, &state_str);
+			ms_filter_call_method(session->as->audiostream->ec, MS_ECHO_CANCELLER_GET_STATE_STRING, &state_str);
 			if (state_str){
 				ms_message("Writing echo canceler state, %i bytes",(int)strlen(state_str));
 				if (mData->echo_canceller_state_str)
@@ -755,20 +791,21 @@ void MediaEngine::stop_audio_stream(MediaSession *session) {
 			}
 		}
 
-		audio_stream_stop(session->audiostream);
-		session->audiostream=NULL;
+		audio_stream_stop(session->as->audiostream);
+		session->as->audiostream=NULL;
+		//TODO clean up as
 	}
 }
 
 void MediaEngine::pause_audio_stream(MediaSession* session) {
-	if (session->audiostream != NULL) {
-		 audio_stream_mute_rtp(session->audiostream, true);
+	if (session->as->audiostream != NULL) {
+		 audio_stream_mute_rtp(session->as->audiostream, true);
 	}
 }
 
 void MediaEngine::resume_audio_stream(MediaSession* session) {
-	if (session->audiostream != NULL) {
-		 audio_stream_mute_rtp(session->audiostream, false);
+	if (session->as->audiostream != NULL) {
+		 audio_stream_mute_rtp(session->as->audiostream, false);
 	}
 }
 
@@ -802,9 +839,9 @@ void MediaEngine::stop_media_streams(MediaSession *session)
 
 void MediaEngine::enable_echo_cancellation(const MediaSession* session, bool_t enable)
 {
-	if (session != NULL && session->audiostream!=NULL && session->audiostream->ec) {
+	if (session != NULL && session->as->audiostream!=NULL && session->as->audiostream->ec) {
 		bool_t bypass_mode = !enable;
-		ms_filter_call_method(session->audiostream->ec, MS_ECHO_CANCELLER_SET_BYPASS_MODE, &bypass_mode);
+		ms_filter_call_method(session->as->audiostream->ec, MS_ECHO_CANCELLER_SET_BYPASS_MODE, &bypass_mode);
 	}
 }
 
@@ -835,14 +872,14 @@ bool_t MediaEngine::is_rtp_no_xmit_on_audio_mute_enabled() {
 
 void MediaEngine::enable_echo_limiter(const MediaSession *session, bool_t val, bool_t isFull)
 {
-	if (session!=NULL && session->audiostream!=NULL ) {
+	if (session!=NULL && session->as->audiostream!=NULL ) {
 		if (val) {
 			if (isFull)
-				audio_stream_enable_echo_limiter(session->audiostream, ELControlFull);
+				audio_stream_enable_echo_limiter(session->as->audiostream, ELControlFull);
 			else
-				audio_stream_enable_echo_limiter(session->audiostream, ELControlMic);
+				audio_stream_enable_echo_limiter(session->as->audiostream, ELControlMic);
 		} else {
-			audio_stream_enable_echo_limiter(session->audiostream, ELInactive);
+			audio_stream_enable_echo_limiter(session->as->audiostream, ELInactive);
 		}
 	}
 }
@@ -863,9 +900,9 @@ void MediaEngine::send_dtmf(const MediaSession* session, char dtmf)
 	}
 
 	/* In Band DTMF */
-	if (session->audiostream != NULL) {
+	if (session->as->audiostream != NULL) {
 		ms_message("ME::send_dtmf(): %d\n", dtmf);
-		audio_stream_send_dtmf(session->audiostream, dtmf);
+		audio_stream_send_dtmf(session->as->audiostream, dtmf);
 	}
 	else {
 		ms_error("we cannot send RFC2833 dtmf when we are not in communication");
@@ -938,34 +975,6 @@ void MediaEngine::free_payload_types() {
 	}
 }
 
-/**
- * Terminates a media session
- *
- * @param the_session the MedaiSession object representing the media session(call) to be terminated.
-**/
-int MediaEngine::terminate_session(MediaSession* theSession)
-{
-	//TODO lock engine
-	MediaSession *session = NULL;
-	if (theSession == NULL) {
-		session = mData->curSession;
-		if (ms_list_size(mData->sessions)==1){
-			session=(MediaSession*)mData->sessions->data;
-		} else {
-			ms_warning("No unique call to terminate !");
-			return -1;
-		}
-	}
-	else {
-		session = theSession;
-	}
-
-	//stop the streams
-	stop_media_streams(session);
-
-	return 0;
-}
-
 void MediaEngine::init_sound()
 {
 	int tmp;
@@ -1017,7 +1026,7 @@ void MediaEngine::init_sound()
 		mData->sound_conf.ec = FALSE;
 	} else {
 #if defined(ANDROID)
-		__android_log_write(ANDROID_LOG_DEBUG, "*ME_N*", "*** Echo Cancellation  is ON ***");
+		__android_log_write(ANDROID_LOG_INFO, "*ME_N*", "*** Echo Cancellation  is ON ***");
 #endif
 		mData->sound_conf.ec = TRUE;
 	}
@@ -1078,7 +1087,7 @@ void MediaEngine::build_sound_devices_table() {
 void MediaEngine::set_playback_gain_db (MediaSession *session, float gaindb) {
 	if (session) {
 		float gain=gaindb;
-		AudioStream *st = session->audiostream;
+		AudioStream *st = session->as->audiostream;
 
 		if (st==NULL) {
 			ms_message("set_playback_gain_db(): session has no active audio stream.");
@@ -1186,20 +1195,20 @@ RtpProfile* MediaEngine::make_profile(MSList* payloads) {
 
 void MediaEngine::post_configure_audio_stream(const MediaSession* session) {
 
-	if (session && session->audiostream) {
+	if (session && session->as->audiostream) {
 		float mic_gain = mData->sound_conf.soft_mic_lev;
 		float thres = 0;
 		float recv_gain;
 		float ng_thres = NG_THRESHOLD;
 		float ng_floorgain = NG_FLOOR_GAIN;
-		AudioStream* st = session->audiostream;
+		AudioStream* st = session->as->audiostream;
 
 		int dc_removal = ENABLE_DC_REMOVAL;
 
 		if (!session->audio_muted)
 			set_mic_gain_db(mic_gain);
 		else
-			audio_stream_set_mic_gain(session->audiostream, 0);
+			audio_stream_set_mic_gain(session->as->audiostream, 0);
 
 		recv_gain = mData->sound_conf.soft_play_lev;
 		if (recv_gain != 0) {
@@ -1250,7 +1259,7 @@ void MediaEngine::set_mic_gain_db(float gaindb){
 
 	mData->sound_conf.soft_mic_lev=gaindb;
 
-	if (session == NULL || (st=session->audiostream) == NULL) {
+	if (session == NULL || (st=session->as->audiostream) == NULL) {
 		ms_message("ME::set_mic_gain_db(): no active call.");
 		return;
 	}
@@ -1271,7 +1280,7 @@ void MediaEngine::set_playback_gain_db(float gaindb){
 
     mData->sound_conf.soft_play_lev=gaindb;
 
-    if (session==NULL || (st=session->audiostream)==NULL){
+    if (session==NULL || (st=session->as->audiostream)==NULL){
     	ms_message("ME::set_playback_gain_db(): no active call.");
     	return;
     }
@@ -1289,32 +1298,27 @@ void MediaEngine::background_tasks(MediaSession *session, bool_t one_second_elap
 	if (session->state == ME_SESSION_AUDIO_STREAMING && one_second_elapsed){
 		RtpSession *as = NULL;
 		float audio_load=0;
-		if (session->audiostream!=NULL){
-			as=session->audiostream->ms.session;
-			if (session->audiostream->ms.ticker)
-				audio_load=ms_ticker_get_average_load(session->audiostream->ms.ticker);
+		if (session->as->audiostream!=NULL){
+			as=session->as->audiostream->ms.session;
+			if (session->as->audiostream->ms.ticker)
+				audio_load=ms_ticker_get_average_load(session->as->audiostream->ms.ticker);
 		}
 		//report_bandwidth(session, as);
 		ms_message("Thread processing load: audio=%f",audio_load);
 	}
 
-	if (session->audiostream != NULL) {
+	if (session->as->audiostream != NULL) {
 		OrtpEvent *ev;
 
 		// Beware that the application queue should not depend on treatments from the
 		// media streamer queue.
-		audio_stream_iterate(session->audiostream);
+		audio_stream_iterate(session->as->audiostream);
 
 		while (session->audiostream_app_evq && (NULL != (ev=ortp_ev_queue_get(session->audiostream_app_evq)))){
 			OrtpEventType evt=ortp_event_get_type(ev);
 			OrtpEventData *evd=ortp_event_get_data(ev);
-#if defined(ANDROID)
-			char buf[256];
-			sprintf(buf, "---》oRTPEvent, ev=%d\n", evt);
-			__android_log_write(ANDROID_LOG_INFO, "*ME_N*", buf);
-#endif
 			if (evt == ORTP_EVENT_RTCP_PACKET_RECEIVED) {
-				session->stats[MEDIA_TYPE_AUDIO].round_trip_delay = rtp_session_get_round_trip_propagation(session->audiostream->ms.session);
+				session->stats[MEDIA_TYPE_AUDIO].round_trip_delay = rtp_session_get_round_trip_propagation(session->as->audiostream->ms.session);
 				if(session->stats[MEDIA_TYPE_AUDIO].received_rtcp != NULL)
 					freemsg(session->stats[MEDIA_TYPE_AUDIO].received_rtcp);
 				session->stats[MEDIA_TYPE_AUDIO].received_rtcp = evd->packet;
@@ -1322,7 +1326,7 @@ void MediaEngine::background_tasks(MediaSession *session, bool_t one_second_elap
 
 			} else if (evt == ORTP_EVENT_RTCP_PACKET_EMITTED) {
 				memcpy(&session->stats[MEDIA_TYPE_AUDIO].jitter_stats,
-						rtp_session_get_jitter_stats(session->audiostream->ms.session),
+						rtp_session_get_jitter_stats(session->as->audiostream->ms.session),
 						sizeof(jitter_stats_t));
 				if(session->stats[MEDIA_TYPE_AUDIO].sent_rtcp != NULL)
 					freemsg(session->stats[MEDIA_TYPE_AUDIO].sent_rtcp);
@@ -1332,25 +1336,20 @@ void MediaEngine::background_tasks(MediaSession *session, bool_t one_second_elap
 			} else if ((evt == ORTP_EVENT_ICE_SESSION_PROCESSING_FINISHED) || (evt == ORTP_EVENT_ICE_GATHERING_FINISHED)
 				|| (evt == ORTP_EVENT_ICE_LOSING_PAIRS_COMPLETED) || (evt == ORTP_EVENT_ICE_RESTART_NEEDED)) {
 				//TODO, should'not come here
-#if defined(ANDROID)
-				__android_log_write(ANDROID_LOG_INFO, "*ME_N*", "--->ORTP_EVENT_ICE");
-#endif
-
 			} else if (evt==ORTP_EVENT_TELEPHONE_EVENT){
 				//We don support dtmf receiving
 				//handle_dtmf_received(evd->info.telephone_event);
 			} else if (evt == ORTP_EVENT_ZRTP_ENCRYPTION_CHANGED){
-				//hanlde_audiostream_encryption_changed(session, evd->info.zrtp_stream_encrypted);
-
+				handle_audiostream_encryption_changed(session, evd->info.zrtp_stream_encrypted);
 			} else if (evt == ORTP_EVENT_ZRTP_SAS_READY) {
-				//handle_audiostream_auth_token_ready(session, evd->info.zrtp_sas.sas, evd->info.zrtp_sas.verified);
+				handle_audiostream_auth_token_ready(session, evd->info.zrtp_sas.sas, evd->info.zrtp_sas.verified);
 			}
 
 			ortp_event_destroy(ev);
 		}
 	}
-	if (session->state == ME_SESSION_AUDIO_STREAMING && one_second_elapsed && session->audiostream!=NULL && disconnect_timeout>0 )
-		disconnected = !audio_stream_alive(session->audiostream, disconnect_timeout);
+	if (session->state == ME_SESSION_AUDIO_STREAMING && one_second_elapsed && session->as->audiostream!=NULL && disconnect_timeout>0 )
+		disconnected = !audio_stream_alive(session->as->audiostream, disconnect_timeout);
 	if (disconnected)
 		handle_media_disconnected(session);
 }
@@ -1360,3 +1359,43 @@ void MediaEngine::handle_media_disconnected(MediaSession* session) {
 		//TODO
 	}
 }
+
+void MediaEngine::handle_audiostream_encryption_changed(MediaSession* session, bool_t encrypted) {
+	char status[255]={0};
+	ms_message("Audio stream is %s ", encrypted ? "encrypted" : "not encrypted");
+
+	session->audiostream_encrypted=encrypted;
+}
+
+void MediaEngine::handle_audiostream_auth_token_ready(MediaSession* session, const char* auth_token, bool_t verified) {
+	if (session->auth_token != NULL)
+		ms_free(session->auth_token);
+
+	session->auth_token=ms_strdup(auth_token);
+	session->auth_token_verified=verified;
+
+	ms_message("Authentication token is %s (%s)", auth_token, verified?"verified":"unverified");
+}
+
+bool_t MediaEngine::generate_b64_crypto_key(int key_length, char* key_out) {
+        int b64_size;
+        uint8_t* tmp = (uint8_t*) malloc(key_length);
+        if (ortp_crypto_get_random(tmp, key_length)!=0) {
+                ms_error("Failed to generate random key");
+                free(tmp);
+                return FALSE;
+        }
+
+        b64_size = B64_NAMESPACE::b64_encode((const char*)tmp, key_length, NULL, 0);
+        if (b64_size == 0) {
+                ms_error("Failed to b64 encode key");
+                free(tmp);
+                return FALSE;
+        }
+        key_out[b64_size] = '\0';
+        B64_NAMESPACE::b64_encode((const char*)tmp, key_length, key_out, 40);
+        free(tmp);
+        return TRUE;
+}
+
+

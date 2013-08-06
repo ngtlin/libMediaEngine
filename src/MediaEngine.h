@@ -3,6 +3,7 @@
 
 #include <mediastreamer2/mediastream.h>
 #include <mediastreamer2/mscommon.h>
+#include <ortp/ortp_srtp.h>
 
 
 #define ME_NAME	"NGTI MediaEngine"
@@ -30,6 +31,8 @@
 
 #define MEDIA_TYPE_AUDIO  	(0)
 #define MEDIA_TYPE_VIDEO	(1)
+
+#define STREAM_CRYPTO_ALGO_MAX (4)
 
 #define payload_type_set_number(pt,n)   (pt)->user_data=(void*)((long)n);
 #define payload_type_get_number(pt)     ((int)(long)(pt)->user_data)
@@ -76,6 +79,32 @@ public:
 		float local_loss_rate; /**<percentage of lost packet over last second*/
 	} MediaStats;
 
+	typedef enum {
+		ME_StreamSendRecv,
+		ME_StreamSendOnly,
+		ME_StreamRecvOnly,
+		ME_StreamInactive
+	} ME_StreamDir;
+
+	typedef struct _ME_SrtpCryptoAlgo {
+		unsigned int tag;
+		enum ortp_srtp_crypto_suite_t algo;
+		/* 41= 40 max(key_length for all algo) + '\0' */
+		char master_key[41];
+	} ME_SrtpCryptoAlgo;
+
+	typedef struct _ME_AudioStream {
+		struct _AudioStream *audiostream;
+
+		ME_StreamDir dir;
+		ME_SrtpCryptoAlgo crypto[STREAM_CRYPTO_ALGO_MAX];
+
+		unsigned int crypto_local_tag;
+
+		bool_t encrypted;
+
+	}ME_AudioStream;
+
 	typedef struct _MediaSession
 	{
 		struct _RtpProfile *audio_profile;
@@ -84,7 +113,11 @@ public:
 		void* user_pointer;
 		int audio_port;
 
-		struct _AudioStream *audiostream;
+		ME_AudioStream *as;
+		bool_t audiostream_encrypted;
+
+		char *auth_token;
+		bool_t auth_token_verified;
 
 		PayloadType*	audioSendCodec;
 		MSList *		audioRecvCodecs; //payload not owned
@@ -187,13 +220,15 @@ public:	// Public functions
 
 	virtual ME_List* GetAvaliableVideoCodecs() const;
 
+	virtual const char* GetAudioStreamSessionKey(MediaSession* session); //now default only the AES_128_SHA1_80 algo supported
+
 	virtual MediaSession* CreateSession();
 
 	virtual int DeleteSession(MediaSession* session);
 
 	virtual void InitStreams(MediaSession* session, int local_audio_port, int local_video_port = -1);
 
-	virtual void StartStreams(MediaSession* session, PayloadType* sendAudioCodec, ME_List* recAudioCodecs, const char *cname, const char *remIp, const int remAudioPort, const int remVideoPort =-1, const bool_t sendAudio = TRUE);
+	virtual void StartStreams(MediaSession* session, PayloadType* sendAudioCodec, ME_List* recAudioCodecs, const char *cname, const char *remIp, const int remAudioPort, const int remVideoPort =-1, const bool_t sendAudio = TRUE, const char* audio_rcv_key=NULL);
 
 	virtual void StopStreams(MediaSession* session);
 
@@ -212,8 +247,6 @@ public:	// Public functions
 	virtual void SetPlaybackGain(float gain);
 
 private: // Private functions
-
-	int terminate_session(MediaSession *theSession);
 
 	void init_sound();
 
@@ -244,7 +277,7 @@ private: // Private functions
 	//Audio stream
 	void preempt_sound_resources();
 	void init_audio_stream(MediaSession* session, int local_port);
-	void start_audio_stream(MediaSession* session, const char *cname, const char *remIp, const int remport, bool_t muted, bool_t use_arc, bool_t sendAudio);
+	void start_audio_stream(MediaSession* session, const char *cname, const char *remIp, const int remport, bool_t muted, bool_t use_arc, bool_t sendAudio, const char* rcv_key);
 	void stop_audio_stream(MediaSession* session);
 	void pause_audio_stream(MediaSession* session);
 	void resume_audio_stream(MediaSession* session);
@@ -272,6 +305,10 @@ private: // Private functions
 	void background_tasks(MediaSession* session, bool_t one_second_elapsed);
 
 	void handle_media_disconnected(MediaSession* session);
+	void handle_audiostream_encryption_changed(MediaSession* session, bool_t encrypted);
+	void handle_audiostream_auth_token_ready(MediaSession* session, const char* auth_token, bool_t verified);
+
+	static bool_t generate_b64_crypto_key(int key_length, char* key_out);
 
 private: // Data
 
