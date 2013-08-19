@@ -110,7 +110,7 @@ void rtp_session_rtp_parse(RtpSession *session, mblk_t *mp, uint32_t local_str_t
 	rtp->ssrc=ntohl(rtp->ssrc);
 	/* convert csrc if necessary */
 	if (rtp->cc*sizeof(uint32_t) > (uint32_t) (msgsize-RTP_FIXED_HEADER_SIZE)){
-		ortp_debug("Receiving too short rtp packet.");
+		ortp_message("Receiving too short rtp packet.");
 		stats->bad++;
 		ortp_global_stats.bad++;
 		freemsg(mp);
@@ -150,7 +150,7 @@ void rtp_session_rtp_parse(RtpSession *session, mblk_t *mp, uint32_t local_str_t
 				rtp_signal_table_emit(&session->on_ssrc_changed);
 			}else{
 				/*discard the packet*/
-				ortp_debug("Receiving packet with unknown ssrc.");
+				ortp_warning("Receiving packet with unknown ssrc.");
 				stats->bad++;
 				ortp_global_stats.bad++;
 				freemsg(mp);
@@ -205,13 +205,13 @@ void rtp_session_rtp_parse(RtpSession *session, mblk_t *mp, uint32_t local_str_t
 	if (session->hw_recv_pt!=rtp->paytype){
 		rtp_session_update_payload_type(session,rtp->paytype);
 	}
-	
+
 	jitter_control_new_packet(&session->rtp.jittctl,rtp->timestamp,local_str_ts);
 
 	if (session->flags & RTP_SESSION_FIRST_PACKET_DELIVERED) {
 		/* detect timestamp important jumps in the future, to workaround stupid rtp senders */
 		if (RTP_TIMESTAMP_IS_NEWER_THAN(rtp->timestamp,session->rtp.rcv_last_ts+session->rtp.ts_jump)){
-			ortp_debug("rtp_parse: timestamp jump ?");
+			ortp_warning("rtp_parse: timestamp jump ?");
 			rtp_signal_table_emit2(&session->on_timestamp_jump,(long)&rtp->timestamp);
 		}
 		else if (RTP_TIMESTAMP_IS_STRICTLY_NEWER_THAN(session->rtp.rcv_last_ts,rtp->timestamp)){
@@ -225,7 +225,7 @@ void rtp_session_rtp_parse(RtpSession *session, mblk_t *mp, uint32_t local_str_t
 				rtp_signal_table_emit2(&session->on_timestamp_jump,
 							(long)&rtp->timestamp);
 			}
-			ortp_debug("rtp_parse: discarding too old packet (ts=%i)",rtp->timestamp);
+			ortp_message("rtp_parse: discarding too old packet (ts=%i)",rtp->timestamp);
 			freemsg(mp);
 			stats->outoftime++;
 			ortp_global_stats.outoftime++;

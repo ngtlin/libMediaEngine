@@ -174,7 +174,7 @@ mblk_t *rtp_getq(queue_t *q,uint32_t timestamp, int *rejected)
 				break;
 			}
 			if (old!=NULL) {
-				ortp_debug("rtp_getq: discarding too old packet with ts=%i",ts_found);
+				ortp_message("rtp_getq: discarding too old packet with ts=%i",ts_found);
 				(*rejected)++;
 				freemsg(old);
 			}
@@ -224,7 +224,7 @@ rtp_session_init (RtpSession * session, int mode)
 	JBParameters jbp;
 	if (session == NULL) 
 	{
-	    ortp_debug("rtp_session_init: Invalid paramter (session=NULL)");
+	    ortp_error("rtp_session_init: Invalid paramter (session=NULL)");
 	    return;
 	}
 	memset (session, 0, sizeof (RtpSession));
@@ -1109,7 +1109,7 @@ rtp_session_recvm_with_ts (RtpSession * session, uint32_t user_ts)
 		queue_t *q = &session->rtp.rq;
 		if (qempty(q))
 		{
-			ortp_debug ("Queue is empty.");
+			ortp_debug("Queue is empty.");
 			goto end;
 		}
 		rtp = (rtp_header_t *) qfirst(q)->b_rptr;
@@ -1169,7 +1169,7 @@ rtp_session_recvm_with_ts (RtpSession * session, uint32_t user_ts)
 	}
 	else
 	{
-		ortp_debug ("No mp for timestamp queried");
+		ortp_debug("No mp for timestamp queried");
 	}
 	rtp_session_rtcp_process_recv(session);
 	

@@ -129,7 +129,7 @@ static ortp_socket_t create_and_bind(const char *addr, int port, int *sock_famil
 		*sock_family=res->ai_family;
 		err = bind (sock, res->ai_addr, res->ai_addrlen);
 		if (err != 0){
-			ortp_debug ("Fail to bind rtp socket to (addr=%s port=%i) : %s.", addr,port, getSocketError());
+			ortp_error("Fail to bind rtp socket to (addr=%s port=%i) : %s.", addr,port, getSocketError());
 			close_socket (sock);
 			sock=-1;
 			continue;
@@ -337,7 +337,7 @@ rtp_session_set_local_addr (RtpSession * session, const char * addr, int rtp_por
 			session->rtcp.sockfamily=sockfamily;
 			session->rtcp.socket=sock;
 		}else {
-			ortp_debug("Could not create and bind rtcp socket.");
+			ortp_error("Could not create and bind rtcp socket.");
 			return -1;
 		}
 		
@@ -1318,7 +1318,7 @@ static int process_rtcp_packet( RtpSession *session, mblk_t *block, struct socka
 
 	int msgsize = (int) ( block->b_wptr - block->b_rptr );
 	if ( msgsize < RTCP_COMMON_HEADER_SIZE ) {
-		ortp_debug( "Receiving a too short RTCP packet" );
+		ortp_message( "Receiving a too short RTCP packet" );
 		return 0;
 	}
 
@@ -1342,7 +1342,7 @@ static int process_rtcp_packet( RtpSession *session, mblk_t *block, struct socka
 			}
 		}
 		/* discard in two case: the packet is not stun OR nobody is interested by STUN (no eventqs) */
-		ortp_debug("Receiving rtcp packet with version number !=2...discarded");
+		ortp_message("Receiving rtcp packet with version number !=2...discarded");
 		return 0;
 	}
 	/* compound rtcp packet can be composed by more than one rtcp message */
@@ -1363,12 +1363,12 @@ static int process_rtcp_packet( RtpSession *session, mblk_t *block, struct socka
 
 			
 			if ( ntohl( sr->ssrc ) != session->rcv.ssrc ) {
-				ortp_debug( "Receiving a RTCP SR packet from an unknown ssrc" );
+				ortp_message( "Receiving a RTCP SR packet from an unknown ssrc" );
 				return 0;
 			}
 
 			if ( msgsize < RTCP_COMMON_HEADER_SIZE + RTCP_SSRC_FIELD_SIZE + RTCP_SENDER_INFO_SIZE + ( RTCP_REPORT_BLOCK_SIZE * sr->ch.rc ) ) {
-				ortp_debug( "Receiving a too short RTCP SR packet" );
+				ortp_message( "Receiving a too short RTCP SR packet" );
 				return 0;
 			}
 
