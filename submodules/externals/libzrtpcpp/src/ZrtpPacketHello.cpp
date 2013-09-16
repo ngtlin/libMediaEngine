@@ -106,10 +106,15 @@ ZrtpPacketHello::ZrtpPacketHello(uint8_t *data) {
     uint32_t temp = ntohl(t);
 
     nHash = (temp & (0xf << 16)) >> 16;
+    nHash &= 0x7;                              // restrict to max 7 algorithms 
     nCipher = (temp & (0xf << 12)) >> 12;
+    nCipher &= 0x7; 
     nAuth = (temp & (0xf << 8)) >> 8;
+    nAuth &= 0x7; 
     nPubkey = (temp & (0xf << 4)) >> 4;
+    nPubkey &= 0x7; 
     nSas = temp & 0xf;
+    nSas &= 0x7; 
 
     oHash = sizeof(Hello_t);
     oCipher = oHash + (nHash * ZRTP_WORD_SIZE);

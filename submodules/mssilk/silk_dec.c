@@ -20,7 +20,9 @@
 #include "mediastreamer2/mscodecutils.h"
 #include "mediastreamer2/msfilter.h"
 #include "mediastreamer2/msticker.h"
+#include "ortp/rtp.h"
 
+#include <stdint.h>
 
 /*filter common method*/
 struct silk_dec_struct {
@@ -66,18 +68,22 @@ static void decode(MSFilter *f, mblk_t *im) {
 	SKP_int16 ret;
 	/* Decode 20 ms */
 	om=allocb(len,0); /*samplingrate*0.02*2*/ 
+	if(im != NULL)
+		mblk_meta_copy(im, om);
 	ret = SKP_Silk_SDK_Decode( obj->psDec, &obj->control, im?0:1, im?im->b_rptr:0, im?(im->b_wptr - im->b_rptr):0, (SKP_int16*)om->b_wptr, &len );
 	if( ret ) {
 		ms_error( "SKP_Silk_SDK_Decode returned %d", ret );
 		freeb(om);
 	} else {
-		
 		om->b_wptr+=len*2;
+		mblk_set_plc_flag(om, (im!=NULL)?0:1);
 		ms_queue_put(f->outputs[0],om);
 	}
 	if (im){
 		obj->sequence_number = mblk_get_cseq(im);	
-	}else obj->sequence_number++;
+	} else {
+		obj->sequence_number++;
+	}
 	
 	ms_concealer_inc_sample_time(obj->concealer,f->ticker->time,20, im!=NULL);
 }
@@ -169,14 +175,41 @@ static int filter_set_rtp_picker(MSFilter *f, void *arg) {
 	obj->rtp_picker_context=*(MSRtpPayloadPickerContext*)arg;
 	return 0;
 }
+static int filter_have_plc(MSFilter *f, void *arg)
+{
+	*((int *)arg) = 1;
+	return 0;
+}
 static MSFilterMethod filter_methods[]={
-	{	MS_FILTER_SET_SAMPLE_RATE , filter_set_sample_rate },
-    {	MS_FILTER_GET_SAMPLE_RATE , filter_get_sample_rate },
-	{	MS_FILTER_SET_RTP_PAYLOAD_PICKER,filter_set_rtp_picker},
-	{	0, NULL}
+	{	MS_FILTER_SET_SAMPLE_RATE 	, 	filter_set_sample_rate 	},
+	{	MS_FILTER_GET_SAMPLE_RATE 	, 	filter_get_sample_rate 	},
+	{	MS_FILTER_SET_RTP_PAYLOAD_PICKER,	filter_set_rtp_picker	},
+	{ 	MS_DECODER_HAVE_PLC		, 	filter_have_plc		},
+	{	0				, 	NULL			}
 };
 
 
+
+#ifdef _MSC_VER
+
+MSFilterDesc ms_silk_dec_desc={
+	MS_FILTER_PLUGIN_ID, /* from Allfilters.h*/
+	"MSSILKDec",
+	"Silk decoder filter.",
+	MS_FILTER_DECODER,
+	"SILK",
+	1, /*number of inputs*/
+	1, /*number of outputs*/
+	filter_init,
+	filter_preprocess,
+	filter_process,
+    filter_postprocess,
+	filter_unit,
+	filter_methods,
+	MS_FILTER_IS_PUMP
+};
+
+#else
 
 MSFilterDesc ms_silk_dec_desc={
 	.id=MS_FILTER_PLUGIN_ID, /* from Allfilters.h*/
@@ -194,4 +227,7 @@ MSFilterDesc ms_silk_dec_desc={
 	.methods=filter_methods,
 	.flags=MS_FILTER_IS_PUMP
 };
+
+#endif
+
 MS_FILTER_DESC_EXPORT(ms_silk_dec_desc)

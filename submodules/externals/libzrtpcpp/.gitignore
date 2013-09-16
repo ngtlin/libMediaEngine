@@ -1,9 +1,11 @@
 build/
 autoconf/
+doc/html/
 configure
 Makefile
 Makefile.in
 aclocal.m4
+.kdev*
 *.o
 *.lo
 *.la
@@ -12,6 +14,5 @@ aclocal.m4
 *.deps
 *.libs
 *.pc
-*.spec
 *~
 

@@ -1,5 +1,5 @@
 dnl Process this file with autoconf to produce a configure script.
-AC_INIT([mediastreamer],[2.9.0])
+AC_INIT([mediastreamer],[2.9.1])
 
 AC_MSG_NOTICE([$PACKAGE_NAME-$PACKAGE_VERSION		A mediastreaming library for telephony application.])
 AC_MSG_NOTICE([licensed under the terms of the General Public License (GPL)])
@@ -30,8 +30,7 @@ PACKAGE=mediastreamer
 
 OS=`uname|sed -e 'y/ABCDEFGHIJKLMNOPQRSTUVWXYZ/abcdefghijklmnopqrstuvwxyz/'`
 AC_MSG_RESULT([Building Package on ${OS}])
-
-AM_INIT_AUTOMAKE([tar-ustar subdir-objects])
+AM_INIT_AUTOMAKE([1.9 tar-pax subdir-objects])
 m4_ifdef([AM_SILENT_RULES],[AM_SILENT_RULES([yes])],)
 AC_SUBST([docdir], [${datadir}/doc])
 AC_CONFIG_HEADERS(mediastreamer-config.h)
@@ -109,6 +108,7 @@ AS_CASE([$enable_debug],
 		[yes],[
 			CFLAGS="$CFLAGS -g -DDEBUG"
 			CXXFLAGS="$CXXFLAGS -g -DDEBUG"
+			OBJCFLAGS="$OBJCFLAGS -g -DDEBUG"
 		],
 		[no],
 		[
@@ -118,6 +118,7 @@ AS_CASE([$enable_debug],
 				*)
 					CFLAGS="$CFLAGS -O2 -g"
 					CXXFLAGS="$CXXFLAGS -O2 -g"
+					OBJCFLAGS="$OBJCFLAGS -O2 -g"
 				;;
 			esac
 		],
@@ -196,9 +197,11 @@ if test "$mingw_found" != "yes" ; then
 	CPPFLAGS=$CPPFLAGS_save
 	LIBS="$LIBS $LIBINTL"
 else
-	AC_DEFINE(ENABLE_NLS,1,[Tells whether localisation is possible])
-	AC_DEFINE(HAVE_GETTEXT,1,[Tells wheter localisation is possible])
-	LIBS="$LIBS -lintl"
+	if test "$USE_NLS" = "yes" ; then
+		AC_DEFINE(ENABLE_NLS,1,[Tells whether localisation is possible])
+		AC_DEFINE(HAVE_GETTEXT,1,[Tells wheter localisation is possible])
+		LIBS="$LIBS -lintl"
+	fi
 fi
 
 AM_CONDITIONAL(BUILD_MACOSX, test x$macosx_found = xyes)
@@ -593,6 +596,25 @@ if test "$build_upnp" != "false" ; then
 
 fi
 
+dnl check for opus codec support
+AC_ARG_ENABLE(opus,
+	[AS_HELP_STRING([--disable-opus], [Disable opus codec support])],
+	[case "${enableval}" in
+		yes) opus=true ;;
+		no) opus=false ;;
+		*) AC_MSG_ERROR(bad value ${enableval} for --disable-opus) ;;
+	esac], [opus=true])
+if test x$opus = xtrue; then
+PKG_CHECK_MODULES(OPUS, opus >= 0.9.0,
+	[AC_DEFINE(HAVE_OPUS, 1, [Tells whether opus can be used])
+	have_opus=true],
+	[have_opus=false]
+)
+AC_SUBST(OPUS_CFLAGS)
+AC_SUBST(OPUS_LIBS)
+fi
+
+AM_CONDITIONAL(BUILD_OPUS, test x$have_opus = xtrue)
 AM_CONDITIONAL(BUILD_GSM, test x$build_gsm = xyes )
 AM_CONDITIONAL(BUILD_G726, test "$have_spandsp" = "true" )
 
@@ -602,7 +624,8 @@ AM_CONDITIONAL(BUILD_THEORA, test "$have_theora" = "yes")
 AM_CONDITIONAL(BUILD_VP8, test "$have_vp8" = "yes")
 AM_CONDITIONAL(BUILD_WIN32, test "$mingw_found" = "yes")
 AM_CONDITIONAL(BUILD_WIN32_WCE, test "$mingw32ce_found" = "yes")
-AM_CONDITIONAL(BUILD_FFMPEG, test "$ffmpeg" = "true")
+AM_CONDITIONAL(BUILD_AVCODEC, test x$avcodec_found = xyes)
+AM_CONDITIONAL(BUILD_SWSCALE, test x$swscale_found = xyes)
 AM_CONDITIONAL(BUILD_SDL,test "$sdl_found" = "true" )
 AM_CONDITIONAL(BUILD_X11_XV, test "$enable_xv" = "true" )
 AM_CONDITIONAL(BUILD_X11_GL, test "$enable_glx" = "true" )
@@ -801,10 +824,10 @@ if test x$enable_pcap == xyes ; then
 	if test $PCAP != false ; then
 		PCAP_LIBS=`pcap-config --libs`
 		PCAP_CFLAGS=`pcap-config --cflags`
-		PCAP_CFLAGS="$PCAP_CFLAGS -DHAVE_PCAP"
 		AC_SUBST(PCAP_LIBS)
 		AC_SUBST(PCAP_CFLAGS)
-	fi
+		AC_DEFINE(HAVE_PCAP,1,[whether we compile with libpcap support])
+	fi	
 fi
 
 
@@ -878,6 +901,12 @@ AC_PATH_PROG(MKEPMLIST,mkepmlist,false)
 AC_PATH_PROG(EPMINSTALL,epminstall,false)
 AM_CONDITIONAL(WITH_EPM,test $EPM != false && test $MKEPMLIST != false && test $EPMINSTALL != false)
 
+
+dnl Check for xxd
+AC_CHECK_PROG(xxd_found, xxd, yes)
+if test "$xxd_found" != yes ;then
+ 	AC_MSG_ERROR("xxd is required")
+fi
 
 # Preferred packaging system, as per EPM terminology
 case $target in

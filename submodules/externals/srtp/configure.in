@@ -5,7 +5,7 @@ dnl Must come before AC_PROG_CC
 if test -z "$CFLAGS"; then
    dnl Default value for CFLAGS if not specified.
    dnl do not use -04 it makes problems on iphone with lipo
-   CFLAGS="-Wall -O2 -fexpensive-optimizations -funroll-loops"
+   CFLAGS="-Wall -O2 -fexpensive-optimizations -funroll-loops -fPIC"
 fi
 
 dnl Checks for programs.
@@ -191,7 +191,7 @@ if test "$enable_gdoi" = "yes"; then
 fi
 AC_MSG_RESULT($enable_gdoi)
 
-AC_CONFIG_HEADER(crypto/include/config.h:config_in.h)
+AC_CONFIG_HEADERS(crypto/include/config.h:config_in.h)
 
 AC_OUTPUT(Makefile crypto/Makefile doc/Makefile)
 

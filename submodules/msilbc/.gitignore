@@ -1,0 +1,15 @@
+.deps
+.libs
+Makefile
+configure
+config.log
+build-aux
+Makefile.in
+*.exe
+msilbc.iss
+*.lo
+*.la
+config.status
+libtool
+autom4te.cache
+

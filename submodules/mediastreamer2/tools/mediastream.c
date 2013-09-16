@@ -46,8 +46,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #ifdef __APPLE__
 #include <CoreFoundation/CFRunLoop.h>
 #endif
-#if  defined(__ios) || defined (ANDROID)
-#ifdef __ios
+#if  TARGET_OS_IPHONE || defined (ANDROID)
+#if TARGET_OS_IPHONE
 #import <UIKit/UIKit.h>
 #include <AudioToolbox/AudioToolbox.h>
 #endif
@@ -154,13 +154,13 @@ void mediastream_run_loop(MediastreamDatas* args);
 void clear_mediastreams(MediastreamDatas* args);
 
 // HELPER METHODS
-static void stop_handler(int signum);
+void stop_handler(int signum);
 static bool_t parse_addr(const char *addr, char *ip, int len, int *port);
 static bool_t parse_ice_addr(char* addr, char* type, int type_len, char* ip, int ip_len, int* port);
 static void display_items(void *user_data, uint32_t csrc, rtcp_sdes_type_t t, const char *content, uint8_t content_len);
 static void parse_rtcp(mblk_t *m);
 static void parse_events(RtpSession *session, OrtpEvQueue *q);
-static PayloadType* create_custom_payload_type(const char *type, const char *subtype, const char *rate, int number);
+static PayloadType* create_custom_payload_type(const char *type, const char *subtype, const char *rate, const char *channels, int number);
 static PayloadType* parse_custom_payload(const char *name);
 static bool_t parse_window_ids(const char *ids, int* video_id, int* preview_id);
 
@@ -527,7 +527,7 @@ void setup_media_streams(MediastreamDatas* args) {
 	}
 
 
-#if defined(__ios) || defined(ANDROID)
+#if TARGET_OS_IPHONE || defined(ANDROID)
 #if defined (HAVE_X264) && defined (VIDEO_ENABLED)
 	libmsx264_init(); /*no plugin on IOS*/
 #endif
@@ -544,7 +544,7 @@ void setup_media_streams(MediastreamDatas* args) {
 	rtp_profile_set_payload(&av_profile,114,args->custom_pt);
 	rtp_profile_set_payload(&av_profile,115,&payload_type_lpc1015);
 #ifdef VIDEO_ENABLED
-#if defined (__ios) && defined (HAVE_X264)
+#if TARGET_OS_IPHONE && defined (HAVE_X264)
 	libmsx264_init(); /*no plugin on IOS*/
 #endif
 	rtp_profile_set_payload(&av_profile,26,&payload_type_jpeg);
@@ -713,10 +713,12 @@ void setup_media_streams(MediastreamDatas* args) {
 #endif
 		video_stream_set_sent_video_size(args->video,args->vs);
 		video_stream_use_preview_video_window(args->video,args->two_windows);
-#ifdef __ios
+#if TARGET_OS_IPHONE
 		NSBundle* myBundle = [NSBundle mainBundle];
 		const char*  nowebcam = [[myBundle pathForResource:@"nowebcamCIF"ofType:@"jpg"] cStringUsingEncoding:[NSString defaultCStringEncoding]];
 		ms_static_image_set_default_image(nowebcam);
+		NSUInteger cpucount = [[NSProcessInfo processInfo] processorCount];
+		ms_set_cpu_count(cpucount);
 #endif
 
 		video_stream_enable_adaptive_bitrate_control(args->video,args->use_rc);
@@ -771,56 +773,60 @@ static void mediastream_tool_iterate(MediastreamDatas* args) {
 	struct pollfd pfd;
 	int err;
 	
-	pfd.fd=STDIN_FILENO;
-	pfd.events=POLL_IN;
-	pfd.revents=0;
+	if (args->interactive){
+		pfd.fd=STDIN_FILENO;
+		pfd.events=POLL_IN;
+		pfd.revents=0;
 	
-	err=poll(&pfd,1,10);
-	if (args->interactive && err==1 && (pfd.revents & POLL_IN)){
-		char commands[128];
-		int intarg;
-		commands[127]='\0';
-		ms_sleep(1);  /* ensure following text be printed after ortp messages */
-		if (args->eq)
-		printf("\nPlease enter equalizer requests, such as 'eq active 1', 'eq active 0', 'eq 1200 0.1 200'\n");
+		err=poll(&pfd,1,10);
+		if (err==1 && (pfd.revents & POLL_IN)){
+			char commands[128];
+			int intarg;
+			commands[127]='\0';
+			ms_sleep(1);  /* ensure following text be printed after ortp messages */
+			if (args->eq)
+			printf("\nPlease enter equalizer requests, such as 'eq active 1', 'eq active 0', 'eq 1200 0.1 200'\n");
 
- 		if (fgets(commands,sizeof(commands)-1,stdin)!=NULL){
-			int active,freq,freq_width;
+			if (fgets(commands,sizeof(commands)-1,stdin)!=NULL){
+				int active,freq,freq_width;
 
-			float gain;
-			if (sscanf(commands,"eq active %i",&active)==1){
-				audio_stream_enable_equalizer(args->audio,active);
-				printf("OK\n");
-			}else if (sscanf(commands,"eq %i %f %i",&freq,&gain,&freq_width)==3){
-				audio_stream_equalizer_set_gain(args->audio,freq,gain,freq_width);
-				printf("OK\n");
-			}else if (sscanf(commands,"eq %i %f",&freq,&gain)==2){
-				audio_stream_equalizer_set_gain(args->audio,freq,gain,0);
-				printf("OK\n");
-			}else if (strstr(commands,"dump")){
-				int n=0,i;
-				float *t;
-				ms_filter_call_method(args->audio->equalizer,MS_EQUALIZER_GET_NUM_FREQUENCIES,&n);
-				t=(float*)alloca(sizeof(float)*n);
-				ms_filter_call_method(args->audio->equalizer,MS_EQUALIZER_DUMP_STATE,t);
-				for(i=0;i<n;++i){
-					if (fabs(t[i]-1)>0.01){
-					printf("%i:%f:0 ",(i*args->pt->clock_rate)/(2*n),t[i]);
+				float gain;
+				if (sscanf(commands,"eq active %i",&active)==1){
+					audio_stream_enable_equalizer(args->audio,active);
+					printf("OK\n");
+				}else if (sscanf(commands,"eq %i %f %i",&freq,&gain,&freq_width)==3){
+					audio_stream_equalizer_set_gain(args->audio,freq,gain,freq_width);
+					printf("OK\n");
+				}else if (sscanf(commands,"eq %i %f",&freq,&gain)==2){
+					audio_stream_equalizer_set_gain(args->audio,freq,gain,0);
+					printf("OK\n");
+				}else if (strstr(commands,"dump")){
+					int n=0,i;
+					float *t;
+					ms_filter_call_method(args->audio->equalizer,MS_EQUALIZER_GET_NUM_FREQUENCIES,&n);
+					t=(float*)alloca(sizeof(float)*n);
+					ms_filter_call_method(args->audio->equalizer,MS_EQUALIZER_DUMP_STATE,t);
+					for(i=0;i<n;++i){
+						if (fabs(t[i]-1)>0.01){
+						printf("%i:%f:0 ",(i*args->pt->clock_rate)/(2*n),t[i]);
+						}
 					}
+					printf("\nOK\n");
+				}else if (sscanf(commands,"lossrate %i",&intarg)==1){
+					OrtpNetworkSimulatorParams params={0};
+					params.enabled=TRUE;
+					params.loss_rate=intarg;
+					rtp_session_enable_network_simulation(args->session,&params);
 				}
-				printf("\nOK\n");
-			}else if (sscanf(commands,"lossrate %i",&intarg)==1){
-				OrtpNetworkSimulatorParams params={0};
-				params.enabled=TRUE;
-				params.loss_rate=intarg;
-				rtp_session_enable_network_simulation(args->session,&params);
+				else if (strstr(commands,"quit")){
+					cond=0;
+				}else printf("Cannot understand this.\n");
 			}
-			else if (strstr(commands,"quit")){
-				cond=0;
-			}else printf("Cannot understand this.\n");
+		}else if (err==-1 && errno!=EINTR){
+			ms_fatal("mediastream's poll() returned %s",strerror(errno));
 		}
-	}else if (err==-1 && errno!=EINTR){
-		ms_fatal("mediastream's poll() returned %s",strerror(errno));
+	}else{
+		ms_usleep(10000);
 	}
 #else
 	MSG msg;
@@ -836,14 +842,14 @@ static void mediastream_tool_iterate(MediastreamDatas* args) {
 void mediastream_run_loop(MediastreamDatas* args) {
 	rtp_session_register_event_queue(args->session,args->q);
 
-#ifdef __ios
+#if TARGET_OS_IPHONE
 	if (args->video) ms_set_video_stream(args->video); /*for IOS*/
 #endif
 
 	while(cond)
 	{
 		int n;
-		for(n=0;n<100;++n){
+		for(n=0;n<100 && cond;++n){
 			mediastream_tool_iterate(args);
 #if defined(VIDEO_ENABLED)
 			if (args->video) video_stream_iterate(args->video);
@@ -991,7 +997,7 @@ JNIEXPORT void JNICALL Java_org_linphone_mediastream_MediastreamerActivity_clear
 #endif
 
 // HELPER METHODS
-static void stop_handler(int signum)
+void stop_handler(int signum)
 {
 	cond--;
 	if (cond<0) {
@@ -1092,7 +1098,7 @@ static void parse_events(RtpSession *session, OrtpEvQueue *q){
 	}
 }
 
-static PayloadType* create_custom_payload_type(const char *type, const char *subtype, const char *rate, int number){
+static PayloadType* create_custom_payload_type(const char *type, const char *subtype, const char *rate, const char *channels, int number){
 	PayloadType *pt=payload_type_new();
 	if (strcasecmp(type,"audio")==0){
 		pt->type=PAYLOAD_AUDIO_PACKETIZED;
@@ -1104,7 +1110,7 @@ static PayloadType* create_custom_payload_type(const char *type, const char *sub
 	}
 	pt->mime_type=ms_strdup(subtype);
 	pt->clock_rate=atoi(rate);
-	pt->channels=1;
+	pt->channels=atoi(channels);
 	return pt;	
 }
 
@@ -1112,6 +1118,7 @@ static PayloadType* parse_custom_payload(const char *name){
 	char type[64]={0};
 	char subtype[64]={0};
 	char clockrate[64]={0};
+	char nchannels[64];
 	char *separator;
 
 	if (strlen(name)>=sizeof(clockrate)-1){
@@ -1126,10 +1133,20 @@ static PayloadType* parse_custom_payload(const char *name){
 		strncpy(type,name,separator-name);
 		separator2=strchr(separator+1,'/');
 		if (separator2){
+			char *separator3;
+
 			strncpy(subtype,separator+1,separator2-separator-1);
-			strcpy(clockrate,separator2+1);
-			fprintf(stdout,"Found custom payload type=%s, mime=%s, clockrate=%s\n",type,subtype,clockrate);
-			return create_custom_payload_type(type,subtype,clockrate,114);
+			separator3=strchr(separator2+1,'/');
+			if (separator3){
+				strncpy(clockrate,separator2+1,separator3-separator2-1);
+				strcpy(nchannels,separator3+1);
+			} else {
+				nchannels[0]='1';
+				nchannels[1]='\0';
+				strcpy(clockrate,separator2+1);
+			}
+			fprintf(stdout,"Found custom payload type=%s, mime=%s, clockrate=%s nchannels=%s\n", type, subtype, clockrate, nchannels);
+			return create_custom_payload_type(type,subtype,clockrate,nchannels,114);
 		}
 	}
 	fprintf(stderr,"Error parsing payload name %s.\n",name);

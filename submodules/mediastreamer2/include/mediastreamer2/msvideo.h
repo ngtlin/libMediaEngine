@@ -23,6 +23,9 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include <mediastreamer2/msfilter.h>
 
 /* some global constants for video MSFilter(s) */
+#define MS_VIDEO_SIZE_UNKNOWN_W 0
+#define MS_VIDEO_SIZE_UNKNOWN_H 0
+
 #define MS_VIDEO_SIZE_SQCIF_W 128
 #define MS_VIDEO_SIZE_SQCIF_H 96
 
@@ -116,8 +119,11 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #define MS_VIDEO_SIZE_WXGA_W 1080
 #define MS_VIDEO_SIZE_WXGA_H 768
 
-#define MS_VIDEO_SIZE_MAX_W MS_VIDEO_SIZE_1024_W
-#define MS_VIDEO_SIZE_MAX_H MS_VIDEO_SIZE_1024_H
+#define MS_VIDEO_SIZE_SXGA_MINUS_W 1280
+#define MS_VIDEO_SIZE_SXGA_MINUS_H 960
+
+#define MS_VIDEO_SIZE_UXGA_W 1600
+#define MS_VIDEO_SIZE_UXGA_H 1200
 
 
 /* those structs are part of the ABI: don't change their size otherwise binary plugins will be broken*/
@@ -130,6 +136,26 @@ typedef struct MSRect{
 	int x,y,w,h;
 } MSRect;
 
+/**
+ * Structure describing a video configuration to be able to define a video size, a FPS
+ * and some other parameters according to the desired bitrate.
+ */
+struct _MSVideoConfiguration {
+	int required_bitrate;	/**< The minimum bitrate required for the video configuration to be used. */
+	int bitrate_limit;	/**< The maximum bitrate to use when this video configuration is used. */
+	MSVideoSize vsize;	/**< The video size that is used when using this video configuration. */
+	float fps;	/**< The FPS that is used when using this video configuration. */
+	void *extra;	/**< A pointer to some extra parameters that may be used by the encoder when using this video configuration. */
+};
+
+/**
+ * Definition of the MSVideoConfiguration type.
+ * @see struct _MSVideoConfiguration
+ */
+typedef struct _MSVideoConfiguration MSVideoConfiguration;
+
+#define MS_VIDEO_SIZE_UNKNOWN (MSVideoSize){ MS_VIDEO_SIZE_UNKNOWN_W, MS_VIDEO_SIZE_UNKNOWN_H }
+
 #define MS_VIDEO_SIZE_CIF (MSVideoSize){MS_VIDEO_SIZE_CIF_W,MS_VIDEO_SIZE_CIF_H}
 #define MS_VIDEO_SIZE_QCIF (MSVideoSize){MS_VIDEO_SIZE_QCIF_W,MS_VIDEO_SIZE_QCIF_H}
 #define MS_VIDEO_SIZE_4CIF (MSVideoSize){MS_VIDEO_SIZE_4CIF_W,MS_VIDEO_SIZE_4CIF_H}
@@ -138,13 +164,21 @@ typedef struct MSRect{
 #define MS_VIDEO_SIZE_QVGA (MSVideoSize){MS_VIDEO_SIZE_QVGA_W,MS_VIDEO_SIZE_QVGA_H}
 #define MS_VIDEO_SIZE_VGA (MSVideoSize){MS_VIDEO_SIZE_VGA_W,MS_VIDEO_SIZE_VGA_H}
 
+#define MS_VIDEO_SIZE_IOS_MEDIUM (MSVideoSize){ MS_VIDEO_SIZE_IOS_MEDIUM_W, MS_VIDEO_SIZE_IOS_MEDIUM_H }
+
 #define MS_VIDEO_SIZE_720P (MSVideoSize){MS_VIDEO_SIZE_720P_W, MS_VIDEO_SIZE_720P_H}
+
+#define MS_VIDEO_SIZE_1080P (MSVideoSize){ MS_VIDEO_SIZE_1080P_W, MS_VIDEO_SIZE_1080P_H }
 
 #define MS_VIDEO_SIZE_NS1 (MSVideoSize){MS_VIDEO_SIZE_NS1_W,MS_VIDEO_SIZE_NS1_H}
 
 #define MS_VIDEO_SIZE_XGA (MSVideoSize){MS_VIDEO_SIZE_XGA_W, MS_VIDEO_SIZE_XGA_H}
 
 #define MS_VIDEO_SIZE_SVGA (MSVideoSize){MS_VIDEO_SIZE_SVGA_W, MS_VIDEO_SIZE_SVGA_H}
+
+#define MS_VIDEO_SIZE_SXGA_MINUS (MSVideoSize){ MS_VIDEO_SIZE_SXGA_MINUS_W, MS_VIDEO_SIZE_SXGA_MINUS_H }
+
+#define MS_VIDEO_SIZE_UXGA (MSVideoSize){ MS_VIDEO_SIZE_UXGA_W, MS_VIDEO_SIZE_UXGA_H }
 
 #ifdef _MSC_VER
 #define MS_VIDEO_SIZE_ASSIGN(vsize,name) \
@@ -188,6 +222,7 @@ typedef enum{
 	MS_YUY2,   /* -> same as MS_YUYV */
 	MS_RGBA32,
 	MS_RGB565,
+	MS_H264,
 	MS_PIX_FMT_UNKNOWN
 }MSPixFmt;
 
@@ -211,6 +246,9 @@ MS2_PUBLIC int ms_yuv_buf_init_from_mblk(MSPicture *buf, mblk_t *m);
 MS2_PUBLIC int ms_yuv_buf_init_from_mblk_with_size(MSPicture *buf, mblk_t *m, int w, int h);
 MS2_PUBLIC int ms_picture_init_from_mblk_with_size(MSPicture *buf, mblk_t *m, MSPixFmt fmt, int w, int h);
 MS2_PUBLIC mblk_t * ms_yuv_buf_alloc(MSPicture *buf, int w, int h);
+
+/* Allocates a video mblk_t with supplied width and height, the pixels being contained in an external buffer.
+The returned mblk_t points to the external buffer, which is not copied, nor ref'd: the reference is simply transfered to the returned mblk_t*/
 MS2_PUBLIC mblk_t * ms_yuv_buf_alloc_from_buffer(int w, int h, mblk_t* buffer);
 MS2_PUBLIC void ms_yuv_buf_copy(uint8_t *src_planes[], const int src_strides[],
 		uint8_t *dst_planes[], const int dst_strides[3], MSVideoSize roi);
@@ -325,6 +363,22 @@ typedef struct _MSAverageFPS MSAverageFPS;
 MS2_PUBLIC void ms_video_init_average_fps(MSAverageFPS* afps, const char* context);
 MS2_PUBLIC bool_t ms_video_update_average_fps(MSAverageFPS* afps, uint32_t current_time);
 
+/**
+ * Find the best video configuration from a list of configurations according to a given bitrate limit.
+ * @param[in] vconf_list The list of video configurations to choose from.
+ * @param[in] bitrate The maximum bitrate limit the chosen configuration is allowed to use.
+ * @return The best video configuration found in the given list.
+ */
+MS2_PUBLIC MSVideoConfiguration ms_video_find_best_configuration_for_bitrate(const MSVideoConfiguration *vconf_list, int bitrate);
+
+/**
+ * Find the best video configuration from a list of configuration according to a given video size.
+ * @param[in] vconf_list The list of video configurations to choose from.
+ * @param[in] vsize The maximum video size the chosen configuration is allowed to use.
+ * @return The best video configuration found in the given list.
+ */
+MS2_PUBLIC MSVideoConfiguration ms_video_find_best_configuration_for_size(const MSVideoConfiguration *vconf_list, MSVideoSize vsize);
+
 #ifdef __cplusplus
 }
 #endif
@@ -337,6 +391,9 @@ MS2_PUBLIC bool_t ms_video_update_average_fps(MSAverageFPS* afps, uint32_t curre
 
 #define MS_FILTER_SET_FPS		MS_FILTER_BASE_METHOD(104,float)
 #define MS_FILTER_GET_FPS		MS_FILTER_BASE_METHOD(105,float)
+
+#define MS_FILTER_VIDEO_AUTO		((unsigned long) 0)
+#define MS_FILTER_VIDEO_NONE		((unsigned long) -1)
 
 /* request a video-fast-update (=I frame for H263,MP4V-ES) to a video encoder*/
 /* DEPRECATED: Use MS_VIDEO_ENCODER_REQ_VFU instead */

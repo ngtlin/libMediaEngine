@@ -74,12 +74,12 @@ uint32_t SHA_K2 = 0x8F1BBCDC;   /* Kt for 40 <= t <= 59 */
 uint32_t SHA_K3 = 0xCA62C1D6;   /* Kt for 60 <= t <= 79 */
 
 void
-sha1(const uint8_t *msg,  int octets_in_msg, uint32_t hash_value[5]) {
+crypto_sha1(const uint8_t *msg,  int octets_in_msg, uint32_t hash_value[5]) {
   sha1_ctx_t ctx;
 
-  sha1_init(&ctx);
-  sha1_update(&ctx, msg, octets_in_msg);
-  sha1_final(&ctx, hash_value);
+  crypto_sha1_init(&ctx);
+  crypto_sha1_update(&ctx, msg, octets_in_msg);
+  crypto_sha1_final(&ctx, hash_value);
 
 }
 
@@ -96,7 +96,7 @@ sha1(const uint8_t *msg,  int octets_in_msg, uint32_t hash_value[5]) {
  */
 
 void
-sha1_core(const uint32_t M[16], uint32_t hash_value[5]) {
+crypto_sha1_core(const uint32_t M[16], uint32_t hash_value[5]) {
   uint32_t H0;
   uint32_t H1;
   uint32_t H2;
@@ -183,7 +183,7 @@ sha1_core(const uint32_t M[16], uint32_t hash_value[5]) {
 }
 
 void
-sha1_init(sha1_ctx_t *ctx) {
+crypto_sha1_init(sha1_ctx_t *ctx) {
 
   /* initialize state vector */
   ctx->H[0] = 0x67452301;
@@ -201,7 +201,7 @@ sha1_init(sha1_ctx_t *ctx) {
 }
 
 void
-sha1_update(sha1_ctx_t *ctx, const uint8_t *msg, int octets_in_msg) {
+crypto_sha1_update(sha1_ctx_t *ctx, const uint8_t *msg, int octets_in_msg) {
   int i;
   uint8_t *buf = (uint8_t *)ctx->M;
 
@@ -226,7 +226,7 @@ sha1_update(sha1_ctx_t *ctx, const uint8_t *msg, int octets_in_msg) {
 
       debug_print(mod_sha1, "(update) running sha1_core()", NULL);
 
-      sha1_core(ctx->M, ctx->H);
+      crypto_sha1_core(ctx->M, ctx->H);
 
     } else {
 
@@ -249,7 +249,7 @@ sha1_update(sha1_ctx_t *ctx, const uint8_t *msg, int octets_in_msg) {
  */
 
 void
-sha1_final(sha1_ctx_t *ctx, uint32_t *output) {
+crypto_sha1_final(sha1_ctx_t *ctx, uint32_t *output) {
   uint32_t A, B, C, D, E, TEMP;
   uint32_t W[80];  
   int i, t;

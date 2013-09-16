@@ -20,6 +20,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "mediastreamer2/msfilter.h"
 #include "mediastreamer2/msticker.h"
 
+
 static MSList *desc_list=NULL;
 static bool_t statistics_enabled=FALSE;
 static MSList *stats_list=NULL;
@@ -60,14 +61,63 @@ void ms_filter_unregister_all(){
 }
 
 bool_t ms_filter_codec_supported(const char *mime){
-	MSFilterDesc *enc = ms_filter_get_encoder(mime);
-	MSFilterDesc *dec = ms_filter_get_decoder(mime);
+	MSFilterDesc *enc = ms_filter_get_encoding_capturer(mime);
+	MSFilterDesc *dec = ms_filter_get_decoding_renderer(mime);
+
+	if (enc == NULL) enc = ms_filter_get_encoder(mime);
+	if (dec == NULL) dec = ms_filter_get_decoder(mime);
 
 	if(enc!=NULL && dec!=NULL) return TRUE;
 
 	if(enc==NULL) ms_message("Could not find encoder for %s", mime);
 	if(dec==NULL) ms_message("Could not find decoder for %s", mime);
 	return FALSE;
+}
+
+MSFilterDesc * ms_filter_get_encoding_capturer(const char *mime) {
+	MSList *elem;
+
+	for (elem = desc_list; elem != NULL; elem = ms_list_next(elem)) {
+		MSFilterDesc *desc = (MSFilterDesc *)elem->data;
+		if (desc->category == MS_FILTER_ENCODING_CAPTURER) {
+			char *saveptr=NULL;
+			char *enc_fmt = ms_strdup(desc->enc_fmt);
+			char *token = strtok_r(enc_fmt, " ", &saveptr);
+			while (token != NULL) {
+				if (strcasecmp(token, mime) == 0) {
+					break;
+				}
+				token = strtok_r(NULL, " ", &saveptr);
+			}
+			ms_free(enc_fmt);
+			if (token != NULL) return desc;
+		}
+	}
+
+	return NULL;
+}
+
+MSFilterDesc * ms_filter_get_decoding_renderer(const char *mime) {
+	MSList *elem;
+
+	for (elem = desc_list; elem != NULL; elem = ms_list_next(elem)) {
+		MSFilterDesc *desc = (MSFilterDesc *)elem->data;
+		if (desc->category == MS_FILTER_DECODING_RENDERER) {
+			char *saveptr=NULL;
+			char *enc_fmt = ms_strdup(desc->enc_fmt);
+			char *token = strtok_r(enc_fmt, " ", &saveptr);
+			while (token != NULL) {
+				if (strcasecmp(token, mime) == 0) {
+					break;
+				}
+				token = strtok_r(NULL, " ", &saveptr);
+			}
+			ms_free(enc_fmt);
+			if (token != NULL) return desc;
+		}
+	}
+
+	return NULL;
 }
 
 MSFilterDesc * ms_filter_get_encoder(const char *mime){

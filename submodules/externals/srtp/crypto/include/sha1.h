@@ -65,7 +65,7 @@ typedef struct {
  */
 
 void
-sha1(const uint8_t *message,  int octets_in_msg, uint32_t output[5]);
+crypto_sha1(const uint8_t *message,  int octets_in_msg, uint32_t output[5]);
 
 /*
  * sha1_init(&ctx) initializes the SHA1 context ctx
@@ -79,13 +79,13 @@ sha1(const uint8_t *message,  int octets_in_msg, uint32_t output[5]);
  */
 
 void
-sha1_init(sha1_ctx_t *ctx);
+crypto_sha1_init(sha1_ctx_t *ctx);
 
 void
-sha1_update(sha1_ctx_t *ctx, const uint8_t *M, int octets_in_msg);
+crypto_sha1_update(sha1_ctx_t *ctx, const uint8_t *M, int octets_in_msg);
 
 void
-sha1_final(sha1_ctx_t *ctx, uint32_t output[5]);
+crypto_sha1_final(sha1_ctx_t *ctx, uint32_t output[5]);
 
 /*
  * The sha1_core function is INTERNAL to SHA-1, but it is declared
@@ -103,6 +103,6 @@ sha1_final(sha1_ctx_t *ctx, uint32_t output[5]);
  */
 
 void
-sha1_core(const uint32_t M[16], uint32_t hash_value[5]);
+crypto_sha1_core(const uint32_t M[16], uint32_t hash_value[5]);
      
 #endif /* SHA1_H */

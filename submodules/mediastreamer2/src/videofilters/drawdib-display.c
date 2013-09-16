@@ -32,6 +32,9 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include <vfw.h>
 
+static void draw_background(HDC hdc, MSVideoSize wsize, MSRect mainrect, int color[3]);
+static void erase_window(HWND window, int color[3]);
+
 typedef struct Yuv2RgbCtx{
 	uint8_t *rgb;
 	size_t rgblen;
@@ -136,6 +139,7 @@ typedef struct _DDDisplay{
 	bool_t autofit;
 	bool_t mirroring;
 	bool_t own_window;
+	bool_t auto_window;
 }DDDisplay;
 
 static LRESULT CALLBACK window_proc(
@@ -234,15 +238,18 @@ static void dd_display_init(MSFilter  *f){
 	obj->autofit=TRUE;
 	obj->mirroring=FALSE;
 	obj->own_window=TRUE;
+	obj->auto_window=TRUE;
 	f->data=obj;
 }
 
 static void dd_display_prepare(MSFilter *f){
 	DDDisplay *dd=(DDDisplay*)f->data;
 	
-	if (dd->window==NULL){
-		dd->window=create_window(dd->wsize.width,dd->wsize.height);
-		SetWindowLong(dd->window,GWL_USERDATA,(long)dd);
+	if (dd->window==NULL) {
+		if(dd->auto_window) {
+			dd->window=create_window(dd->wsize.width,dd->wsize.height);
+			SetWindowLong(dd->window,GWL_USERDATA,(long)dd);
+		}
 	}
 	if (dd->ddh==NULL)
 		dd->ddh=DrawDibOpen();
@@ -253,6 +260,9 @@ static void dd_display_prepare(MSFilter *f){
 
 static void dd_display_unprepare(MSFilter *f){
 	DDDisplay *dd=(DDDisplay*)f->data;
+	if(dd->window!=NULL) {
+		erase_window(dd->window, dd->background_color);
+	}
 	if (dd->own_window && dd->window!=NULL){
 		DestroyWindow(dd->window);
 		dd->window=NULL;
@@ -280,6 +290,24 @@ static void dd_display_preprocess(MSFilter *f){
 static void draw_local_view_frame(HDC hdc, MSVideoSize wsize, MSRect localrect){
 	Rectangle(hdc, localrect.x-LOCAL_BORDER_SIZE, localrect.y-LOCAL_BORDER_SIZE,
 		localrect.x+localrect.w+LOCAL_BORDER_SIZE, localrect.y+localrect.h+LOCAL_BORDER_SIZE);
+}
+
+static void erase_window(HWND window, int color[3]) {
+	HDC hdc=GetDC(window);
+	RECT rect;
+	MSVideoSize wsize;
+	MSRect mainrect;
+	if (hdc==NULL) {
+		ms_error("Could not get window dc");
+		return;
+	}
+	
+	// Force to draw background
+	GetClientRect(window, &rect);
+	wsize.width = rect.right;
+	wsize.height = rect.bottom;
+	memset(&mainrect, 0, sizeof(MSRect));
+	draw_background(hdc, wsize, mainrect, color);
 }
 
 /*
@@ -365,14 +393,16 @@ static void dd_display_process(MSFilter *f){
 	
 	if (f->inputs[0]!=NULL && (main_im=ms_queue_peek_last(f->inputs[0]))!=NULL) {
 		if (ms_yuv_buf_init_from_mblk(&mainpic,main_im)==0){
-			if (obj->autofit && (obj->vsize.width!=mainpic.w || obj->vsize.height!=mainpic.h)
-				&& (mainpic.w>wsize.width || mainpic.h>wsize.height)){
-				RECT cur;
-				ms_message("Detected video resolution changed, resizing window");
-				GetWindowRect(obj->window,&cur);
-				wsize.width=mainpic.w;
-				wsize.height=mainpic.h;
-				MoveWindow(obj->window,cur.left, cur.top, wsize.width, wsize.height,TRUE);
+			if (obj->vsize.width!=mainpic.w || obj->vsize.height!=mainpic.h){
+				ms_message("Detected video resolution changed to %ix%i",mainpic.w,mainpic.h);
+				if (obj->autofit && (mainpic.w>wsize.width || mainpic.h>wsize.height) ){
+					RECT cur;
+					GetWindowRect(obj->window,&cur);
+					wsize.width=mainpic.w;
+					wsize.height=mainpic.h;
+					MoveWindow(obj->window,cur.left, cur.top, wsize.width, wsize.height,TRUE);
+				}
+				//in all case repaint the background.
 				obj->need_repaint=TRUE;
 			}
 			obj->vsize.width=mainpic.w;
@@ -457,14 +487,25 @@ static void dd_display_process(MSFilter *f){
 
 static int get_native_window_id(MSFilter *f, void *data){
 	DDDisplay *obj=(DDDisplay*)f->data;
-	*(long*)data=(long)obj->window;
+	if(obj->auto_window) {
+		*(long*)data=(long)obj->window;
+	} else {
+		*(unsigned long*)data=MS_FILTER_VIDEO_NONE;
+	}
 	return 0;
 }
 
 static int set_native_window_id(MSFilter *f, void *data){
 	DDDisplay *obj=(DDDisplay*)f->data;
-	obj->window=(HWND)(*(long*)data);
-	obj->own_window=FALSE;
+	unsigned long winId = *((unsigned long*)data);
+	if(winId != MS_FILTER_VIDEO_NONE) {
+		obj->window=(HWND)(*(long*)data);
+		obj->own_window=FALSE;
+		obj->auto_window=TRUE;
+	} else {
+		obj->window=NULL;
+		obj->auto_window=FALSE;
+	}
 	return 0;
 }
 

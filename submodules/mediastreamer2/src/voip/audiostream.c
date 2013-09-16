@@ -359,8 +359,10 @@ int audio_stream_start_full(AudioStream *stream, RtpProfile *profile, const char
 			int delay_ms=ms_snd_card_get_minimal_latency(captcard);
 			if (delay_ms!=0){
 				ms_message("Setting echo canceller delay with value provided by soundcard: %i ms",delay_ms);
-				ms_filter_call_method(stream->ec,MS_ECHO_CANCELLER_SET_DELAY,&delay_ms);
 			}
+			ms_filter_call_method(stream->ec,MS_ECHO_CANCELLER_SET_DELAY,&delay_ms);
+		}else {
+			ms_message("Setting echo canceller delay with value configured by application.");
 		}
 		ms_filter_call_method(stream->ec,MS_FILTER_SET_SAMPLE_RATE,&sample_rate);
 	}
@@ -401,8 +403,8 @@ int audio_stream_start_full(AudioStream *stream, RtpProfile *profile, const char
 				ptime=atoi(value);
 				ms_filter_call_method(stream->ms.encoder,MS_AUDIO_ENCODER_SET_PTIME,&ptime);
 			}
-			ms_filter_call_method(stream->ms.encoder,MS_FILTER_ADD_FMTP, (void*)pt->send_fmtp);
 		}
+		ms_filter_call_method(stream->ms.encoder,MS_FILTER_ADD_FMTP, (void*)pt->send_fmtp);
 	}
 	if (pt->recv_fmtp!=NULL) ms_filter_call_method(stream->ms.decoder,MS_FILTER_ADD_FMTP,(void*)pt->recv_fmtp);
 

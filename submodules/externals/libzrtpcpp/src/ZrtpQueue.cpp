@@ -51,6 +51,7 @@ void ZrtpQueue::init()
     enableZrtp = false;
     started = false;
     mitmMode = false;
+    enableParanoidMode = false;
     zrtpEngine = NULL;
     senderZrtpSeqNo = 1;
 
@@ -70,8 +71,7 @@ ZrtpQueue::~ZrtpQueue() {
 }
 
 int32_t
-ZrtpQueue::initialize(const char *zidFilename, bool autoEnable,
-                     ZrtpConfigure* config)
+ZrtpQueue::initialize(const char *zidFilename, bool autoEnable, ZrtpConfigure* config)
 {
     int32_t ret = 1;
 
@@ -83,6 +83,8 @@ ZrtpQueue::initialize(const char *zidFilename, bool autoEnable,
         config->setStandardConfig();
     }
     enableZrtp = autoEnable;
+
+    config->setParanoidMode(enableParanoidMode);
 
     if (staticTimeoutProvider == NULL) {
         staticTimeoutProvider = new TimeoutProvider<std::string, ZrtpQueue*>();
@@ -105,7 +107,7 @@ ZrtpQueue::initialize(const char *zidFilename, bool autoEnable,
     }
     if (ret > 0) {
         const uint8_t* ownZid = zf->getZid();
-        zrtpEngine = new ZRtp((uint8_t*)ownZid, (ZrtpCallback*)this, clientIdString, config, mitmMode);
+        zrtpEngine = new ZRtp((uint8_t*)ownZid, (ZrtpCallback*)this, clientIdString, config, mitmMode, signSas);
     }
     if (configOwn != NULL) {
         delete configOwn;
@@ -156,6 +158,10 @@ ZrtpQueue::takeInDataPacket(void)
     // if ZRTP processing is enabled. Because valid RTP packets are
     // already handled we delete any packets here after processing.
     if (enableZrtp && zrtpEngine != NULL) {
+        // Fixed header length + smallest ZRTP packet (includes CRC)
+        if ((unsigned)rtn < (12 + sizeof(HelloAckPacket_t))) // data too small, dismiss
+            return 0;
+
         // Get CRC value into crc (see above how to compute the offset)
         uint16_t temp = rtn - CRC_SIZE;
         uint32_t crc = *(uint32_t*)(buffer + temp);
@@ -197,9 +203,7 @@ ZrtpQueue::takeInDataPacket(void)
 }
 
 size_t
-ZrtpQueue::rtpDataPacket(unsigned char* buffer, int32 rtn,
-                         InetHostAddress network_address,
-                         tpport_t transport_port)
+ZrtpQueue::rtpDataPacket(unsigned char* buffer, int32 rtn, InetHostAddress network_address, tpport_t transport_port)
 {
      // Special handling of padding to take care of encrypted content.
     // In case of SRTP the padding length field is also encrypted, thus
@@ -296,12 +300,8 @@ ZrtpQueue::rtpDataPacket(unsigned char* buffer, int32 rtn,
         network_address, transport_port) &&
         recordReception(*sourceLink,*packet,recvtime) ) {
         // now the packet link is linked in the queues
-        IncomingRTPPktLink* packetLink =
-                new IncomingRTPPktLink(packet,
-                                       sourceLink,
-                                       recvtime,
-                                       packet->getTimestamp() -
-                                               sourceLink->getInitialDataTimestamp(),
+        IncomingRTPPktLink* packetLink = new IncomingRTPPktLink(packet, sourceLink, recvtime,
+                                       packet->getTimestamp() - sourceLink->getInitialDataTimestamp(),
                                        NULL,NULL,NULL,NULL);
         insertRecvPacket(packetLink);
     } else {
@@ -317,7 +317,6 @@ ZrtpQueue::rtpDataPacket(unsigned char* buffer, int32 rtn,
     }
     return rtn;
 }
-
 
 bool
 ZrtpQueue::onSRTPPacketError(IncomingRTPPkt& pkt, int32 errorCode)
@@ -379,9 +378,11 @@ int32_t ZrtpQueue::sendDataZRTP(const unsigned char *data, int32_t length) {
 
 bool ZrtpQueue::srtpSecretsReady(SrtpSecret_t* secrets, EnableSecurity part)
 {
-    CryptoContext* pcc;
     CryptoContext* recvCryptoContext;
     CryptoContext* senderCryptoContext;
+    CryptoContextCtrl* recvCryptoContextCtrl;
+    CryptoContextCtrl* senderCryptoContextCtrl;
+
     int cipher;
     int authn;
     int authKeyLen;
@@ -422,6 +423,17 @@ bool ZrtpQueue::srtpSecretsReady(SrtpSecret_t* secrets, EnableSecurity part)
                     authKeyLen,                              // authentication key len
                     secrets->initSaltLen / 8,                // session salt len
                     secrets->srtpAuthTagLen / 8);            // authentication tag lenA
+            senderCryptoContextCtrl = new CryptoContextCtrl(0,
+                  cipher,                                    // encryption algo
+                  authn,                                     // authtication algo
+                  (unsigned char*)secrets->keyInitiator,     // Master Key
+                  secrets->initKeyLen / 8,                   // Master Key length
+                  (unsigned char*)secrets->saltInitiator,    // Master Salt
+                  secrets->initSaltLen / 8,                  // Master Salt length
+                  secrets->initKeyLen / 8,                   // encryption keyl
+                  authKeyLen,                                // authentication key len
+                  secrets->initSaltLen / 8,                  // session salt len
+                  secrets->srtpAuthTagLen / 8);              // authentication tag len
         }
         else {
             senderCryptoContext = new CryptoContext(
@@ -438,21 +450,28 @@ bool ZrtpQueue::srtpSecretsReady(SrtpSecret_t* secrets, EnableSecurity part)
                     authKeyLen,                              // authentication key len
                     secrets->respSaltLen / 8,                // session salt len
                     secrets->srtpAuthTagLen / 8);            // authentication tag len
+            senderCryptoContextCtrl = new CryptoContextCtrl(0,
+                  cipher,                                    // encryption algo
+                  authn,                                     // authtication algo
+                  (unsigned char*)secrets->keyResponder,     // Master Key
+                  secrets->respKeyLen / 8,                   // Master Key length
+                  (unsigned char*)secrets->saltResponder,    // Master Salt
+                  secrets->respSaltLen / 8,                  // Master Salt length
+                  secrets->respKeyLen / 8,                   // encryption keyl
+                  authKeyLen,                                // authentication key len
+                  secrets->respSaltLen / 8,                  // session salt len
+                  secrets->srtpAuthTagLen / 8);              // authentication tag len
         }
         if (senderCryptoContext == NULL) {
             return false;
         }
-        // Create a SRTP crypto context for real SSRC sender stream.
-        // Note: key derivation can be done at this time only if the
-        // key derivation rate is 0 (disabled). For ZRTP this is the
-        // case: the key derivation is defined as 2^48
-        // which is effectively 0.
-        pcc = senderCryptoContext->newCryptoContextForSSRC(getLocalSSRC(), 0, 0L);
-        if (pcc == NULL) {
-            return false;
-        }
-        pcc->deriveSrtpKeys(0L);
-        setOutQueueCryptoContext(pcc);
+        // Insert the Crypto templates (SSRC == 0) into the queue. When we send
+        // the first RTP or RTCP packet the real crypto context will be created.
+        // Refer to putData(), sendImmediate() in ccrtp's outqueue.cpp and
+        // takeinControlPacket() in ccrtp's control.cpp.
+        //
+         setOutQueueCryptoContext(senderCryptoContext);
+         setOutQueueCryptoContextCtrl(senderCryptoContextCtrl);
     }
     if (part == ForReceiver) {
         // To decrypt packets: intiator uses responder keys,
@@ -473,6 +492,18 @@ bool ZrtpQueue::srtpSecretsReady(SrtpSecret_t* secrets, EnableSecurity part)
                     authKeyLen,                              // authentication key len
                     secrets->respSaltLen / 8,                // session salt len
                     secrets->srtpAuthTagLen / 8);            // authentication tag len
+            recvCryptoContextCtrl = new CryptoContextCtrl(0,
+                  cipher,                                    // encryption algo
+                  authn,                                     // authtication algo
+                  (unsigned char*)secrets->keyResponder,     // Master Key
+                  secrets->respKeyLen / 8,                   // Master Key length
+                  (unsigned char*)secrets->saltResponder,    // Master Salt
+                  secrets->respSaltLen / 8,                  // Master Salt length
+                  secrets->respKeyLen / 8,                   // encryption keyl
+                  authKeyLen,                                // authentication key len
+                  secrets->respSaltLen / 8,                  // session salt len
+                  secrets->srtpAuthTagLen / 8);              // authentication tag len
+
         }
         else {
             recvCryptoContext = new CryptoContext(
@@ -489,30 +520,27 @@ bool ZrtpQueue::srtpSecretsReady(SrtpSecret_t* secrets, EnableSecurity part)
                     authKeyLen,                              // authentication key len
                     secrets->initSaltLen / 8,                // session salt len
                     secrets->srtpAuthTagLen / 8);            // authentication tag len
+            recvCryptoContextCtrl = new CryptoContextCtrl(0,
+                  cipher,                                    // encryption algo
+                  authn,                                     // authtication algo
+                  (unsigned char*)secrets->keyInitiator,     // Master Key
+                  secrets->initKeyLen / 8,                   // Master Key length
+                  (unsigned char*)secrets->saltInitiator,    // Master Salt
+                  secrets->initSaltLen / 8,                  // Master Salt length
+                  secrets->initKeyLen / 8,                   // encryption keyl
+                  authKeyLen,                                // authentication key len
+                  secrets->initSaltLen / 8,                  // session salt len
+                  secrets->srtpAuthTagLen / 8);              // authentication tag len
         }
         if (recvCryptoContext == NULL) {
             return false;
         }
-        // Create a SRTP crypto context for real SSRC input stream.
-        // If the sender didn't provide a SSRC just insert the template
-        // into the queue. After we received the first packet the real
-        // crypto context will be created.
+        // Insert the Crypto templates (SSRC == 0) into the queue. When we receive
+        // the first RTP or RTCP packet the real crypto context will be created.
+        // Refer to rtpDataPacket() above and takeinControlPacket in ccrtp's control.cpp.
         //
-        // Note: key derivation can be done at this time only if the
-        // key derivation rate is 0 (disabled). For ZRTP this is the
-        // case: the key derivation is defined as 2^48
-        // which is effectively 0.
-        if (peerSSRC != 0) {
-            pcc = recvCryptoContext->newCryptoContextForSSRC(peerSSRC, 0, 0L);
-            if (pcc == NULL) {
-                return false;
-            }
-            pcc->deriveSrtpKeys(0L);
-            setInQueueCryptoContext(pcc);
-        }
-        else {
-            setInQueueCryptoContext(recvCryptoContext);
-        }
+        setInQueueCryptoContext(recvCryptoContext);
+        setInQueueCryptoContextCtrl(recvCryptoContextCtrl);
     }
     return true;
 }
@@ -531,9 +559,11 @@ void ZrtpQueue::srtpSecretsOn(std::string c, std::string s, bool verified)
 void ZrtpQueue::srtpSecretsOff(EnableSecurity part) {
     if (part == ForSender) {
         removeOutQueueCryptoContext(NULL);
+        removeOutQueueCryptoContextCtrl(NULL);
     }
     if (part == ForReceiver) {
         removeInQueueCryptoContext(NULL);
+        removeInQueueCryptoContextCtrl(NULL);
     }
     if (zrtpUserCallback != NULL) {
         zrtpUserCallback->secureOff();
@@ -605,15 +635,15 @@ void ZrtpQueue::zrtpInformEnrollment(GnuZrtpCodes::InfoEnrollment  info) {
     }
 }
 
-void ZrtpQueue::signSAS(std::string sas) {
+void ZrtpQueue::signSAS(uint8_t* sasHash) {
     if (zrtpUserCallback != NULL) {
-        zrtpUserCallback->signSAS(sas);
+        zrtpUserCallback->signSAS(sasHash);
     }
 }
 
-bool ZrtpQueue::checkSASSignature(std::string sas) {
+bool ZrtpQueue::checkSASSignature(uint8_t* sasHash) {
     if (zrtpUserCallback != NULL) {
-        return zrtpUserCallback->checkSASSignature(sas);
+        return zrtpUserCallback->checkSASSignature(sasHash);
     }
     return false;
 }
@@ -656,6 +686,13 @@ void ZrtpQueue::setClientId(std::string id) {
 std::string ZrtpQueue::getHelloHash()  {
     if (zrtpEngine != NULL)
         return zrtpEngine->getHelloHash();
+    else
+        return std::string();
+}
+
+std::string ZrtpQueue::getPeerHelloHash()  {
+    if (zrtpEngine != NULL)
+        return zrtpEngine->getPeerHelloHash();
     else
         return std::string();
 }
@@ -731,15 +768,34 @@ void ZrtpQueue::setEnrollmentMode(bool enrollmentMode) {
         zrtpEngine->setEnrollmentMode(enrollmentMode);
 }
 
+void ZrtpQueue::setParanoidMode(bool yesNo) {
+        enableParanoidMode = yesNo;
+}
+
+bool ZrtpQueue::isParanoidMode() {
+        return enableParanoidMode;
+}
+
+bool ZrtpQueue::isPeerEnrolled() {
+    if (zrtpEngine != NULL)
+        return zrtpEngine->isPeerEnrolled();
+    else
+        return false;
+}
+
+void ZrtpQueue::setSignSas(bool sasSignMode) {
+    signSas = sasSignMode;
+}
+
 bool ZrtpQueue::setSignatureData(uint8* data, int32 length) {
     if (zrtpEngine != NULL)
         return zrtpEngine->setSignatureData(data, length);
     return 0;
 }
 
-int32 ZrtpQueue::getSignatureData(uint8* data) {
+const uint8* ZrtpQueue::getSignatureData() {
     if (zrtpEngine != NULL)
-        return zrtpEngine->getSignatureData(data);
+        return zrtpEngine->getSignatureData();
     return 0;
 }
 

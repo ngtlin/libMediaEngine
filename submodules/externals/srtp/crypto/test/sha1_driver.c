@@ -107,9 +107,9 @@ sha1_test_case_validate(const hash_test_case_t *test_case) {
   if (test_case->data_len > MAX_HASH_DATA_LEN)
     return err_status_bad_param;
 
-  sha1_init(&ctx);
-  sha1_update(&ctx, test_case->data, test_case->data_len);
-  sha1_final(&ctx, hash_value);
+  crypto_sha1_init(&ctx);
+  crypto_sha1_update(&ctx, test_case->data, test_case->data_len);
+  crypto_sha1_final(&ctx, hash_value);
   if (0 == memcmp(test_case->hash, hash_value, 20)) {
 #if VERBOSE
     printf("PASSED: reference value: %s\n", 

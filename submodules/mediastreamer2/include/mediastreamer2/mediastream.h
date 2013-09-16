@@ -397,6 +397,8 @@ struct _VideoStream
 	bool_t use_preview_window;
 	bool_t display_filter_auto_rotate_enabled;
 	bool_t prepare_ongoing;
+	bool_t source_performs_encoding;
+	bool_t output_performs_decoding;
 };
 
 typedef struct _VideoStream VideoStream;
@@ -432,6 +434,21 @@ MS2_PUBLIC void video_stream_iterate(VideoStream *stream);
 MS2_PUBLIC void video_stream_send_vfu(VideoStream *stream);
 MS2_PUBLIC void video_stream_stop(VideoStream * stream);
 MS2_PUBLIC void video_stream_set_sent_video_size(VideoStream *stream, MSVideoSize vsize);
+
+/**
+ * Gets the size of the video that is sent.
+ * @param[in] stream The videostream for which to get the sent video size.
+ * @return The sent video size or MS_VIDEO_SIZE_UNKNOWN if not available.
+ */
+MS2_PUBLIC MSVideoSize video_stream_get_sent_video_size(const VideoStream *stream);
+
+/**
+ * Gets the size of the video that is received.
+ * @param[in] stream The videostream for which to get the received video size.
+ * @return The received video size or MS_VIDEO_SIZE_UNKNOWN if not available.
+ */
+MS2_PUBLIC MSVideoSize video_stream_get_received_video_size(const VideoStream *stream);
+
 MS2_PUBLIC void video_stream_enable_self_view(VideoStream *stream, bool_t val);
 MS2_PUBLIC unsigned long video_stream_get_native_window_id(VideoStream *stream);
 MS2_PUBLIC void video_stream_set_native_window_id(VideoStream *stream, unsigned long id);
@@ -440,6 +457,17 @@ MS2_PUBLIC unsigned long video_stream_get_native_preview_window_id(VideoStream *
 MS2_PUBLIC void video_stream_use_preview_video_window(VideoStream *stream, bool_t yesno);
 MS2_PUBLIC void video_stream_set_device_rotation(VideoStream *stream, int orientation);
 MS2_PUBLIC void video_stream_show_video(VideoStream *stream, bool_t show);
+
+/**
+ * @brief Gets the camera sensor rotation.
+ *
+ * This is needed on some mobile platforms to get the number of degrees the camera sensor
+ * is rotated relative to the screen.
+ *
+ * @param stream The video stream related to the operation
+ * @return The camera sensor rotation in degrees (0 to 360) or -1 if it could not be retrieved
+ */
+MS2_PUBLIC int video_stream_get_camera_sensor_rotation(VideoStream *stream);
 
 /*provided for compatibility, use video_stream_set_direction() instead */
 MS2_PUBLIC int video_stream_recv_only_start(VideoStream *videostream, RtpProfile *profile, const char *addr, int port, int used_pt, int jitt_comp);

@@ -38,7 +38,7 @@ typedef struct EncState{
 
 static int set_ptime(MSFilter *f, int ptime){
 	EncState *s=(EncState*)f->data;
-	if (ptime<=0 || ptime>140) return -1;
+	if (ptime<20 || ptime>140) return -1;
 	s->ptime=(ptime/20)*20;
 	ms_message("MSGsmEnc: got ptime=%i using [%i]",ptime,s->ptime);
 	return 0;
@@ -60,6 +60,12 @@ static int enc_add_attr(MSFilter *f, void *arg){
 		int ptime = atoi(attr+6);
 		return set_ptime(f,ptime);
 	}
+	return 0;
+}
+
+static int enc_get_sample_rate(MSFilter *f, void *arg) {
+	MS_UNUSED(f);
+	*((int *)arg) = 8000;
 	return 0;
 }
 
@@ -93,7 +99,7 @@ static void enc_process(MSFilter *f){
 		ms_bufferizer_put(s->bufferizer,im);
 	}
 	while(ms_bufferizer_get_avail(s->bufferizer) >= buff_size) {
-		mblk_t *om=allocb(33*s->ptime/20,0);
+		mblk_t *om=allocb((33*s->ptime)/20,0);
 		buff = (int16_t *)alloca(buff_size);
 		ms_bufferizer_read(s->bufferizer,(uint8_t*)buff,buff_size);
 		
@@ -106,9 +112,11 @@ static void enc_process(MSFilter *f){
 		s->ts+=buff_size/sizeof(int16_t)/*sizeof(buf)/2*/;
 	}
 }
+
 static MSFilterMethod enc_methods[]={
 	{	MS_FILTER_ADD_FMTP		,	enc_add_fmtp},
 	{    MS_FILTER_ADD_ATTR        ,    enc_add_attr},
+	{ MS_FILTER_GET_SAMPLE_RATE, enc_get_sample_rate },
 	{	0				,	NULL		}
 };
 
@@ -180,6 +188,17 @@ static void dec_process(MSFilter *f){
 	}
 }
 
+static int dec_get_sample_rate(MSFilter *f, void *arg) {
+	MS_UNUSED(f);
+	*((int *)arg) = 8000;
+	return 0;
+}
+
+static MSFilterMethod dec_methods[] = {
+	{ MS_FILTER_GET_SAMPLE_RATE, dec_get_sample_rate },
+	{ 0,                         NULL                }
+};
+
 #ifdef _MSC_VER
 
 MSFilterDesc ms_gsm_dec_desc={
@@ -195,7 +214,7 @@ MSFilterDesc ms_gsm_dec_desc={
 	dec_process,
 	NULL,
 	dec_uninit,
-	NULL
+	dec_methods
 };
 
 #else
@@ -210,7 +229,8 @@ MSFilterDesc ms_gsm_dec_desc={
 	.noutputs=1,
 	.init=dec_init,
 	.process=dec_process,
-	.uninit=dec_uninit
+	.uninit=dec_uninit,
+	.methods=dec_methods
 };
 
 #endif

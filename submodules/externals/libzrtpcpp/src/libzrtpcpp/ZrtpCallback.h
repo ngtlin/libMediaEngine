@@ -30,13 +30,12 @@
 #include <libzrtpcpp/ZrtpCodes.h>
 
 #ifndef __EXPORT
-  #if defined _WIN32 || defined __CYGWIN__
-    #define __EXPORT    __declspec(dllimport)
-    #define __LOCAL
-  #endif
   #if __GNUC__ >= 4
     #define __EXPORT    __attribute__ ((visibility("default")))
     #define __LOCAL     __attribute__ ((visibility("hidden")))
+  #elif defined _WIN32 || defined __CYGWIN__
+    #define __EXPORT    __declspec(dllimport)
+    #define __LOCAL
   #else
     #define __EXPORT
     #define __LOCAL
@@ -305,7 +304,7 @@ protected:
      * <b>Note:</b> PBX enrollement is not yet fully supported by GNU
      * ZRTP.
      *
-     * @param info Give some information to the user about the result
+     * @param info information to the user about the result
      *    of an enrollment.
      */
     virtual void zrtpInformEnrollment(GnuZrtpCodes::InfoEnrollment info) =0;
@@ -323,11 +322,11 @@ protected:
      * <b>Note:</b> SAS signing is not yet fully supported by GNU
      * ZRTP.
      *
-     * @param sas
-     *    The SAS string to sign.
+     * @param sasHash
+     *    The SAS hash to sign.
      *
      */
-    virtual void signSAS(std::string sas) =0;
+    virtual void signSAS(uint8_t* sasHash) =0;
 
     /**
      * ZRTPQueue calls this method to request a SAS signature check.
@@ -345,13 +344,13 @@ protected:
      * <b>Note:</b> SAS signing is not yet fully supported by GNU
      * ZRTP.
      *
-     * @param sas
-     *    The SAS string that was signed by the other peer.
+     * @param sasHash
+     *    The SAS hash that was signed by the other peer.
      * @return
      *    true if the signature was ok, false otherwise.
      *
      */
-    virtual bool checkSASSignature(std::string sas) =0;
+    virtual bool checkSASSignature(uint8_t* sasHash) =0;
 };
 
 #endif // ZRTPCALLBACK

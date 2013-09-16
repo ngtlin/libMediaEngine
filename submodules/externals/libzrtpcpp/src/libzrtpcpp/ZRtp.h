@@ -95,7 +95,7 @@ class __EXPORT ZRtp {
      * engine.
      */
     ZRtp(uint8_t* myZid, ZrtpCallback* cb, std::string id,
-         ZrtpConfigure* config, bool mitmm= false);
+         ZrtpConfigure* config, bool mitmm= false, bool sasSignSupport= false);
 
     /**
      * Destructor cleans up.
@@ -176,19 +176,6 @@ class __EXPORT ZRtp {
     void setAuxSecret(uint8_t* data, int32_t length);
 
     /**
-     * Set the PBX secret.
-     *
-     * Use this method to set the PBX secret data. Refer to ZRTP
-     * specification, chapter 4.3 ff and 7.3
-     *
-     * @param data
-     *     Points to the other PBX data.
-     * @param length
-     *     The length in bytes of the data.
-     */
-    void setPbxSecret(uint8_t* data, int32_t length);
-
-    /**
      * Check current state of the ZRTP state engine
      *
      * @param state
@@ -212,18 +199,37 @@ class __EXPORT ZRtp {
      */
     void resetSASVerified();
 
-   /**
-    * Get the ZRTP Hello Hash data.
-    *
-    * Use this method to get the ZRTP Hello Hash data. The method
-    * returns the data as a string containing the ZRTP protocol version and
-    * hex-digits. Refer to ZRTP specification, chapter 8.
-    *
-    * @return
-    *    a std:string containing the Hello hash value as hex-digits. The
-    *    hello hash is available immediately after class instantiation.
-    */
-   std::string getHelloHash();
+    /**
+     * Get the ZRTP Hello Hash data.
+     *
+     * Use this method to get the ZRTP Hello Hash data. The method
+     * returns the data as a string containing the ZRTP protocol version and
+     * hex-digits.
+     *
+     * Refer to ZRTP specification, chapter 8.
+     *
+     * @return
+     *    a std:string containing the Hello hash value as hex-digits. The
+     *    hello hash is available immediately after class instantiation.
+     */
+    std::string getHelloHash();
+
+    /**
+     * Get the peer's ZRTP Hello Hash data.
+     *
+     * Use this method to get the peer's ZRTP Hello Hash data. The method
+     * returns the data as a string containing the ZRTP protocol version and
+     * hex-digits.
+     *
+     * The peer's hello hash is available only after ZRTP received a hello. If
+     * no data is available the function returns an empty string.
+     *
+     * Refer to ZRTP specification, chapter 8.
+     *
+     * @return
+     *    a std:string containing the Hello version and the hello hash as hex digits.
+     */
+    std::string getPeerHelloHash();
 
     /**
      * Get Multi-stream parameters.
@@ -302,7 +308,7 @@ class __EXPORT ZRtp {
      * Check the state of the enrollment mode.
      * 
      * If true then we will set the enrollment flag (E) in the confirm
-     * packets and performs the enrollment actions. A MitM (PBX) enrollment service 
+     * packets and perform the enrollment actions. A MitM (PBX) enrollment service
      * started this ZRTP session. Can be set to true only if mitmMode is also true.
      * 
      * @return status of the enrollmentMode flag.
@@ -310,7 +316,7 @@ class __EXPORT ZRtp {
     bool isEnrollmentMode();
 
     /**
-     * Check the state of the enrollment mode.
+     * Set the state of the enrollment mode.
      * 
      * If true then we will set the enrollment flag (E) in the confirm
      * packets and perform the enrollment actions. A MitM (PBX) enrollment 
@@ -323,13 +329,24 @@ class __EXPORT ZRtp {
     void setEnrollmentMode(bool enrollmentMode);
 
     /**
+     * Check if a peer's cache entry has a vaild MitM key.
+     *
+     * If true then the other peer ha a valid MtiM key, i.e. the peer has performed
+     * the enrollment procedure. A PBX ZRTP Back-2-Back application can use this function
+     * to check which of the peers is enrolled.
+     *
+     * @return True if the other peer has a valid Mitm key (is enrolled).
+     */
+    bool isPeerEnrolled();
+
+    /**
      * Send the SAS relay packet.
      * 
      * The method creates and sends a SAS relay packet according to the ZRTP
      * specifications. Usually only a MitM capable user agent (PBX) uses this
      * function.
      * 
-     * @param sh the full SAS hash value
+     * @param sh the full SAS hash value, 32 bytes
      * @param render the SAS rendering algorithm
      */
     bool sendSASRelayPacket(uint8_t* sh, std::string render);
@@ -343,14 +360,18 @@ class __EXPORT ZRtp {
  
     /**
      * Get the computed SAS hash for this ZRTP session.
-     * 
-     * @return a pointer to the byte array that contains the full 
+     *
+     * A PBX ZRTP back-to-Back function uses this function to get the SAS
+     * hash of an enrolled client to construct the SAS relay packet for
+     * the other client.
+     *
+     * @return a pointer to the byte array that contains the full
      *         SAS hash.
      */
     uint8_t* getSasHash();
 
     /**
-     * Set signature data
+     * Set signature data.
      *
      * This functions stores signature data and transmitts it during ZRTP
      * processing to the other party as part of the Confirm packets. Refer to
@@ -371,32 +392,32 @@ class __EXPORT ZRtp {
     bool setSignatureData(uint8_t* data, int32_t length);
 
     /**
-     * Get signature data
+     * Get signature data.
      *
-     * This functions returns signature data that was receivied during ZRTP
-     * processing. Refer to chapters 5.7 and 7.2.
+     * This functions returns a pointer to the signature data that was receivied
+     * during ZRTP processing. Refer to chapters 5.7 and 7.2.
+     *
+     * The returned pointer points to volatile data that is valid only during the
+     * <code>checkSASSignature()</code> callback funtion. The application must copy
+     * the signature data if it will be used after the callback function returns.
      *
      * The signature data can be retrieved after ZRTP enters secure state.
      * <code>start()</code>.
      *
-     * @param data
-     *    Pointer to a data buffer. This buffer must be large enough to
-     *    hold the signature data. Refer to <code>getSignatureLength()</code>
-     *    to get the length of the received signature data.
      * @return
-     *    Number of bytes copied into the data buffer
+     *    Pointer to signature data.
      */
-    int32_t getSignatureData(uint8_t* data);
+    const uint8_t* getSignatureData();
 
     /**
-     * Get length of signature data
+     * Get length of signature data in number of bytes.
      *
      * This functions returns the length of signature data that was receivied
      * during ZRTP processing. Refer to chapters 5.7 and 7.2.
      *
      * @return
      *    Length in bytes of the received signature data. The method returns
-     *    zero if no signature data avilable.
+     *    zero if no signature data is avilable.
      */
     int32_t getSignatureLength();
 
@@ -554,6 +575,9 @@ private:
     uint8_t H3[IMPL_MAX_DIGEST_LENGTH];
     uint8_t helloHash[IMPL_MAX_DIGEST_LENGTH];
 
+    uint8_t peerHelloHash[IMPL_MAX_DIGEST_LENGTH];
+    uint8_t peerHelloVersion[ZRTP_WORD_SIZE + 1];   // +1 for nul byte
+
     // We get the peer's H? from the message where length is defined as 8 words
     uint8_t peerH0[8*ZRTP_WORD_SIZE];
     uint8_t peerH1[8*ZRTP_WORD_SIZE];
@@ -674,27 +698,25 @@ private:
      * enrollment flags.
      */
     bool enableMitmEnrollment;
-    
+
     /**
-     * True if the Hello packet was sent by a trusted PBX. This is true only
-     * if the Hello packet has the M-flag set and the according ZIDRecord contains
-     * a valid MitM key. 
+     * True if a valid trusted MitM key of the other peer is available, i.e. enrolled.
      */
-    bool trustedMitM;
+    bool peerIsEnrolled;
 
     /**
      * Set to true if the Hello packet contained the M-flag (MitM flag).
      * We use this later to check some stuff for SAS Relay processing
      */
     bool mitmSeen;
-    
+
     /**
      * Temporarily store computed pbxSecret, if user accepts enrollment then
      * it will copied to our ZID record of the PBX (MitM)  
      */
     uint8_t* pbxSecretTmp;
     uint8_t  pbxSecretTmpBuffer[MAX_DIGEST_LENGTH];
-     
+
     /**
      * If true then we will set the enrollment flag (E) in the confirm
      * packets. Set to true if the PBX enrollment service started this ZRTP 
@@ -736,10 +758,47 @@ private:
     /**
      * Variables to store signature data. Includes the signature type block
      */
-    uint8_t* signatureData;       // will be allocated when needed
+    const uint8_t* signatureData;       // will be set when needed
     int32_t  signatureLength;     // overall length in bytes
 
+    /**
+     * Is true if the other peer signaled SAS signature support in its Hello packet.
+     */
+    bool signSasSeen;
+
     uint32_t peerSSRC;            // peer's SSRC, required to setup PingAck packet
+
+    /**
+     * Enable or disable paranoid mode.
+     *
+     * The Paranoid mode controls the behaviour and handling of the SAS verify flag. If
+     * Panaoid mode is set to flase then ZRtp applies the normal handling. If Paranoid
+     * mode is set to true then the handling is:
+     *
+     * <ul>
+     * <li> Force the SAS verify flag to be false at srtpSecretsOn() callback. This gives
+     *      the user interface (UI) the indication to handle the SAS as <b>not verified</b>.
+     *      See implementation note below.</li>
+     * <li> Don't set the SAS verify flag in the <code>Confirm</code> packets, thus the other
+     *      also must report the SAS as <b>not verified</b>.</li>
+     * <li> ignore the <code>SASVerified()</code> function, thus do not set the SAS to verified
+     *      in the ZRTP cache. </li>
+     * <li> Disable the <b>Trusted PBX MitM</b> feature. Just send the <code>SASRelay</code> packet
+     *      but do not process the relayed data. This protects the user from a malicious
+     *      "trusted PBX".</li>
+     * </ul>
+     * ZRtp performs alls other steps during the ZRTP negotiations as usual, in particular it
+     * computes, compares, uses, and stores the retained secrets. This avoids unnecessary warning
+     * messages. The user may enable or disable the Paranoid mode on a call-by-call basis without
+     * breaking the key continuity data.
+     *
+     * <b>Implementation note:</b></br>
+     * An application shall always display the SAS code if the SAS verify flag is <code>false</code>.
+     * The application shall also use mechanisms to remind the user to compare the SAS code, for
+     * example useing larger fonts, different colours and other display features.
+     */
+    bool paranoidMode;
+
     /**
      * Find the best Hash algorithm that is offered in Hello.
      *
@@ -854,7 +913,7 @@ private:
     void generateKeysMultiStream();
 
     void computePBXSecret();
-    
+
     void setNegotiatedHash(AlgorithmEnum* hash);
 
     /*

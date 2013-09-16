@@ -15,6 +15,7 @@ ifeq ($(TARGET_ARCH_ABI),armeabi)
 $(error "STOP video not supported on target armeabi devices!")
 endif
 
+include $(me-root-dir)/submodules/mediastreamer2/src/android/libneon/Android.mk
 
 ##ifeq ($(TARGET_ARCH_ABI),armeabi-v7a)
 ifeq ($(BUILD_GPLV3_ZRTP), 1)
@@ -30,6 +31,11 @@ SRTP_C_INCLUDE= \
 	$(me-root-dir)/submodules/externals/srtp/crypto/include
 endif
 #endif
+
+#libupnp
+ifeq ($(BUILD_UPNP),1)
+include $(me-root-dir)/submodules/externals/build/libupnp/Android.mk
+endif
 
 # Speex
 include $(me-root-dir)/submodules/externals/build/speex/Android.mk
@@ -60,23 +66,11 @@ ifeq (,$(DUMP_VAR))
 $(info Build X264 plugin for mediastreamer2)
 endif
 include $(me-root-dir)/submodules/msx264/Android.mk
-ifeq ($(wildcard $(me-root-dir)/submodules/externals/prebuilts/x264.mk),)
-$(info build X264)
 include $(me-root-dir)/submodules/externals/build/x264/Android.mk
-else
-$(info use prebuilt X264)
-include $(me-root-dir)/submodules/externals/prebuilts/x264.mk
-endif
 endif
 
-ifeq ($(wildcard $(me-root-dir)/submodules/externals/prebuilts/ffmpeg.mk),)
-$(info build ffmepg)
 include $(me-root-dir)/submodules/externals/build/ffmpeg/Android.mk
 include $(me-root-dir)/submodules/externals/build/ffmpeg-no-neon/Android.mk
-else
-$(info use prebuilt X264)
-include $(me-root-dir)/submodules/externals/prebuilts/ffmpeg.mk
-endif
 
 include $(me-root-dir)/submodules/externals/build/libvpx/Android.mk
 endif #armeabi-v7a
@@ -86,11 +80,7 @@ ifeq ($(BUILD_GPLV3_ZRTP), 1)
 ifeq (,$(DUMP_VAR))
 $(info Build ZRTP support - makes application GPLv3)
 endif
-ifeq ($(wildcard $(me-root-dir)/submodules/externals/prebuilts/zrtpcpp.mk),)
 include $(me-root-dir)/submodules/externals/build/libzrtpcpp/Android.mk
-else
-include $(me-root-dir)/submodules/externals/prebuilts/zrtpcpp.mk
-endif
 endif
 
 ifeq ($(BUILD_SRTP), 1)

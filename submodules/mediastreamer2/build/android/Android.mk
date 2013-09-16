@@ -89,9 +89,9 @@ LOCAL_SRC_FILES = \
 	audiofilters/msg722.c \
 	audiofilters/l16.c \
 	audiofilters/msresample.c \
+	audiofilters/devices.c \
 	android/androidsound_depr.cpp \
 	android/loader.cpp \
-	android/android_echo.cpp \
 	android/androidsound.cpp \
 	android/AudioRecord.cpp \
 	android/AudioTrack.cpp \
@@ -146,6 +146,15 @@ LOCAL_SRC_FILES+= \
 	voip/scaler.c \
 	voip/msvideo.c
 endif
+endif
+
+ifeq ($(BUILD_OPUS),1)
+LOCAL_CFLAGS += -DHAVE_OPUS
+LOCAL_SRC_FILES += \
+	audiofilters/msopus.c 
+
+LOCAL_C_INCLUDES += \
+	$(LOCAL_PATH)/../../externals/opus/include 
 endif
 
 ifeq ($(BUILD_UPNP),1)

@@ -384,6 +384,23 @@ public:
     std::string getHelloHash();
 
     /**
+     * Get the peer's ZRTP Hello Hash data.
+     *
+     * Use this method to get the peer's ZRTP Hello Hash data. The method
+     * returns the data as a string containing the ZRTP protocol version and
+     * hex-digits.
+     *
+     * The peer's hello hash is available only after ZRTP received a hello. If
+     * no data is available the function returns an empty string.
+     *
+     * Refer to ZRTP specification, chapter 8.
+     *
+     * @return
+     *    a std:string containing the Hello version and the hello hash as hex digits.
+     */
+    std::string getPeerHelloHash();
+
+    /**
      * Get Multi-stream parameters.
      *
      * Use this method to get the Multi-stream that were computed during
@@ -471,6 +488,10 @@ public:
     /**
      * Get the computed SAS hash for this ZRTP session.
      *
+     * A PBX ZRTP back-to-Back function uses this function to get the SAS
+     * hash of an enrolled client to construct the SAS relay packet for
+     * the other client.
+     *
      * @return a refernce to the byte array that contains the full
      *         SAS hash.
      */
@@ -509,6 +530,44 @@ public:
     void setMitmMode(bool mitmMode);
 
     /**
+     * Enable or disable paranoid mode.
+     *
+     * The Paranoid mode controls the behaviour and handling of the SAS verify flag. If
+     * Panaoid mode is set to flase then ZRtp applies the normal handling. If Paranoid
+     * mode is set to true then the handling is:
+     *
+     * <ul>
+     * <li> always set the SAS verify flag to <code>false</code> at srtpSecretsOn() callback. The
+     *      user interface (UI) must show <b>SAS not verified</b>. See implementation note below.</li>
+     * <li> don't set the SAS verify flag in the <code>Confirm</code> packets, thus forcing the other
+     *      peer to report <b>SAS not verified</b>.</li>
+     * <li> ignore the <code>SASVerified()</code> function, thus do not set the SAS verified flag
+     *      in the ZRTP cache. </li>
+     * <li> Disable the <em>Trusted PBX MitM</em> feature. Just send the <code>SASRelay</code> packet
+     *      but do not process the relayed data. This protects the user from a malicious
+     *      "trusted PBX".</li>
+     * </ul>
+     * ZRtp performs alls other steps during the ZRTP negotiations as usual, in particular it
+     * computes, compares, uses, and stores the retained secrets. This avoids unnecessary warning
+     * messages. The user may enable or disable the Paranoid mode on a call-by-call basis without
+     * breaking the key continuity data.
+     *
+     * <b>Implementation note:</b><br/>
+     * An application shall <b>always display the SAS if the SAS verify flag is <code>false</code></b>.
+     * The application shall remind the user to compare the SAS code, for example using larger fonts,
+     * different colours and other display features.
+     */
+    void setParanoidMode(bool yesNo);
+
+    /**
+     * Check status of paranoid mode.
+     *
+     * @return
+     *    Returns true if paranoid mode is enabled.
+     */
+    bool isParanoidMode();
+
+    /**
      * Check the state of the enrollment mode.
      *
      * If true then we will set the enrollment flag (E) in the confirm
@@ -530,6 +589,33 @@ public:
      * @param enrollmentMode defines the new state of the enrollmentMode flag
      */
     void setEnrollmentMode(bool enrollmentMode);
+
+    /**
+     * Backwards compatible api fix...
+     */
+    inline void setPBXEnrollment(bool enrollmentMode)
+        {setMitmMode(enrollmentMode); setEnrollmentMode(enrollmentMode);}
+
+    /**
+     * Check if a peer's cache entry has a vaild MitM key.
+     *
+     * If true then the other peer ha a valid MtiM key, i.e. the peer has performed
+     * the enrollment procedure. A PBX ZRTP Back-2-Back application can use this function
+     * to check which of the peers is enrolled.
+     *
+     * @return True if the other peer has a valid Mitm key (is enrolled).
+     */
+    bool isPeerEnrolled();
+
+    /**
+     * Set the state of the SAS signature mode flag.
+     *
+     * If SAS signature mode is set to true this ZRTP session support SAS signature
+     * callbacks and signature transfer between clients.
+     *
+     * @param sasSignMode defines the new state of the sasSignMode flag
+     */
+    void setSignSas(bool sasSignMode);
 
     /**
      * Set signature data
@@ -555,17 +641,12 @@ public:
      * This functions returns signature data that was receivied during ZRTP
      * processing. Refer to chapters 6.7 and 8.2.
      *
-     * The signature data can be retrieved after ZRTP enters secure state.
-     * <code>start()</code>.
-     *
-     * @param data
-     *    Pointer to a data buffer. This buffer must be large enough to
-     *    hold the signature data. Refer to <code>getSignatureLength()</code>
-     *    to get the length of the received signature data.
      * @return
-     *    Number of bytes copied into the data buffer
+     *    Pointer to signature data. This is a pointer to volatile data that is
+     *    only valid during the checkSASSignature() callback. The application
+     *    shall copy the data if necessary.
      */
-    int32 getSignatureData(uint8* data);
+    const uint8* getSignatureData();
 
     /**
      * Get length of signature data
@@ -738,9 +819,9 @@ protected:
 
     void zrtpInformEnrollment(GnuZrtpCodes::InfoEnrollment  info);
 
-    void signSAS(std::string sas);
+    void signSAS(uint8_t* sasHash);
 
-    bool checkSASSignature(std::string sas);
+    bool checkSASSignature(uint8_t* sasHash);
 
     /*
      * End of ZrtpCallback functions.
@@ -773,14 +854,13 @@ private:
 
     int32 secureParts;
 
-//        CryptoContext* recvCryptoContext;
-//        CryptoContext* senderCryptoContext;
     int16 senderZrtpSeqNo;
     ost::Mutex synchLock;   // Mutex for ZRTP (used by ZrtpStateClass)
     uint32 peerSSRC;
     bool started;
     bool mitmMode;
-
+    bool signSas;
+    bool enableParanoidMode;
 };
 
 class IncomingZRTPPkt : public IncomingRTPPkt {

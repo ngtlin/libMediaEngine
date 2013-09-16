@@ -13,6 +13,9 @@ LOCAL_CFLAGS += -DVIDEO_ENABLED
 ifeq ($(BUILD_X264),1)
 LOCAL_CFLAGS += -DHAVE_X264
 endif
+ifeq ($(ENABLE_HD_VIDEO),1)
+LOCAL_CFLAGS += -DENABLE_HD
+endif
 endif
 
 ifeq ($(USE_JAVAH),1)
@@ -38,16 +41,6 @@ LOCAL_STATIC_LIBRARIES := \
 	libortp \
 	libgsm
 
-ifeq ($(BUILD_TUNNEL),1)
-LOCAL_CFLAGS +=-DTUNNEL_ENABLED
-LOCAL_C_INCLUDES += $(LOCAL_PATH)/../submodules/tunnel/include $(LOCAL_PATH)/../submodules/tunnel/src
-LOCAL_SRC_FILES +=  TunnelManager.cc
-ifeq ($(TARGET_ARCH_ABI),armeabi-v7a)
-LOCAL_SHARED_LIBRARIES += libtunnelclient
-else
-LOCAL_STATIC_LIBRARIES += libtunnelclient
-endif
-endif
 
 
 _BUILD_AMR=0
@@ -91,6 +84,11 @@ LOCAL_STATIC_LIBRARIES += \
 	libmsx264 \
 	libx264
 endif
+endif
+
+ifeq ($(BUILD_UPNP),1)
+LOCAL_CFLAGS += -DBUILD_UPNP
+LOCAL_SRC_FILES += upnp.c
 endif
 
 LOCAL_STATIC_LIBRARIES += libspeex 

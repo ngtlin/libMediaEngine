@@ -27,6 +27,12 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include <ctype.h>
 
+#ifndef MS_MINIMAL_MTU
+/*this is used for determining the minimum size of recv buffers for RTP packets
+ Keep 1500 for maximum interoparibility*/
+#define MS_MINIMAL_MTU 1500 
+#endif
+
 
 #if defined(_WIN32_WCE)
 time_t
@@ -60,14 +66,22 @@ static void media_stream_change_decoder(MediaStream *stream, int payload) {
 	RtpSession *session = stream->session;
 	RtpProfile *prof = rtp_session_get_profile(session);
 	PayloadType *pt = rtp_profile_get_payload(prof, payload);
+	
+	if (stream->decoder == NULL){
+		ms_message("media_stream_change_decoder(): ignored, no decoder.");
+		return;
+	}
+	
 	if (pt != NULL){
 		MSFilter *dec;
 
-		if ((stream->type == VideoStreamType)
-			&& (stream->decoder != NULL) && (stream->decoder->desc->enc_fmt != NULL)
+		if (stream->type == VideoStreamType){
+			/* Q: why only video ? this optimization seems relevant for audio too.*/
+			if ((stream->decoder != NULL) && (stream->decoder->desc->enc_fmt != NULL)
 			&& (strcasecmp(pt->mime_type, stream->decoder->desc->enc_fmt) == 0)) {
-			/* Same formats behind different numbers, nothing to do. */
-			return;
+				/* Same formats behind different numbers, nothing to do. */
+				return;
+			}
 		}
 
 		dec = ms_filter_create_decoder(pt->mime_type);
@@ -120,7 +134,7 @@ RtpSession * create_duplex_rtpsession(int loc_rtp_port, int loc_rtcp_port, bool_
 	RtpSession *rtpr;
 
 	rtpr = rtp_session_new(RTP_SESSION_SENDRECV);
-	rtp_session_set_recv_buf_size(rtpr, ms_get_mtu());
+	rtp_session_set_recv_buf_size(rtpr, MAX(ms_get_mtu() , MS_MINIMAL_MTU));
 	rtp_session_set_scheduling_mode(rtpr, 0);
 	rtp_session_set_blocking_mode(rtpr, 0);
 	rtp_session_enable_adaptive_jitter_compensation(rtpr, TRUE);

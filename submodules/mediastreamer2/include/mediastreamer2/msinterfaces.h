@@ -24,6 +24,13 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  * Interface definition for video display filters.
 **/
 
+typedef struct _MSVideoDisplayDecodingSupport MSVideoDisplayDecodingSupport;
+
+struct _MSVideoDisplayDecodingSupport {
+	const char *mime_type;	/**< Input parameter to asking if the display supports decoding of this mime type */
+	bool_t supported;	/**< Output telling whether the display supports decoding to the specified mime type */
+};
+
 /** whether the video window should be resized to the stream's resolution*/
 #define MS_VIDEO_DISPLAY_ENABLE_AUTOFIT \
 	MS_FILTER_METHOD(MSFilterVideoDisplayInterface,0,int)
@@ -64,6 +71,9 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 /**Specifiy device orientation from portrait */
 #define MS_VIDEO_DISPLAY_SET_DEVICE_ORIENTATION \
    MS_FILTER_METHOD(MSFilterVideoDisplayInterface,11,int)
+
+#define MS_VIDEO_DISPLAY_SUPPORT_DECODING \
+	MS_FILTER_METHOD(MSFilterVideoDisplayInterface, 12, MSVideoDisplayDecodingSupport*)
 
 /**
   * Interface definitions for players
@@ -170,6 +180,8 @@ typedef enum _MSRecorderState MSRecorderState;
 /** Interface definitions for video capture */
 #define MS_VIDEO_CAPTURE_SET_DEVICE_ORIENTATION \
 	MS_FILTER_METHOD(MSFilterVideoCaptureInterface,0,int)
+#define MS_VIDEO_CAPTURE_GET_CAMERA_SENSOR_ROTATION \
+	MS_FILTER_METHOD(MSFilterVideoCaptureInterface, 1, int)
 
 /** Interface definitions for audio decoder */
 
@@ -184,6 +196,10 @@ typedef enum _MSRecorderState MSRecorderState;
 /* request a video-fast-update (=I frame for H263,MP4V-ES) to a video encoder*/
 #define MS_VIDEO_ENCODER_REQ_VFU \
 	MS_FILTER_METHOD_NO_ARG(MSFilterVideoEncoderInterface, 1)
+#define MS_VIDEO_ENCODER_GET_CONFIGURATION_LIST \
+	MS_FILTER_METHOD(MSFilterVideoEncoderInterface, 2, const MSVideoConfiguration **)
+#define MS_VIDEO_ENCODER_SET_CONFIGURATION \
+	MS_FILTER_METHOD(MSFilterVideoEncoderInterface, 3, const MSVideoConfiguration *)
 
 /** Interface definitions for audio capture */
 /* Start numbering from the end for hacks */
@@ -197,5 +213,11 @@ typedef enum _MSRecorderState MSRecorderState;
 #define MS_AUDIO_ENCODER_GET_PTIME \
 	MS_FILTER_METHOD(MSFilterAudioEncoderInterface,1,int)
 
+/* Enable encoder's builtin forward error correction, if available*/
+#define MS_AUDIO_ENCODER_ENABLE_FEC \
+	MS_FILTER_METHOD(MSFilterAudioEncoderInterface,2,int)
 
+/* Set the packet loss percentage reported, so that encoder may compensate if forward-correction is enabled and implemented.*/
+#define MS_AUDIO_ENCODER_SET_PACKET_LOSS \
+	MS_FILTER_METHOD(MSFilterAudioEncoderInterface,3,int)
 #endif

@@ -40,7 +40,9 @@ extern MSFilterDesc ms_jpeg_writer_desc;
 #if defined(__arm__) && defined(BUILD_WEBRTC_AECM)
 extern MSFilterDesc ms_webrtc_aec_desc;
 #endif
- 
+extern MSFilterDesc ms_opus_dec_desc;
+extern MSFilterDesc ms_opus_enc_desc;
+
 
 MSFilterDesc * ms_voip_filter_descs[]={
 &ms_alaw_dec_desc,
@@ -81,6 +83,10 @@ MSFilterDesc * ms_voip_filter_descs[]={
 #endif
 #if defined(__arm__) && defined(BUILD_WEBRTC_AECM)
 &ms_webrtc_aec_desc,
+#endif
+#ifdef HAVE_OPUS
+&ms_opus_dec_desc,
+&ms_opus_enc_desc,
 #endif
 NULL
 };

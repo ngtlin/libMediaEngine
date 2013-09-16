@@ -16,7 +16,6 @@ ANDROID_SRC_FILES= \
 	android/android-opengl-display.c \
 	android/audio.h \
 	android/loader.cpp android/loader.h \
-	android/android_echo.cpp android/android_echo.h \
 	audiofilters/webrtc_aec.c
 
 EXTRA_DIST= audiofilters/winsnd2.c audiofilters/winsnd.c videofilters/winvideo.c  \
@@ -95,6 +94,7 @@ libmediastreamer_voip_la_SOURCES+=	audiofilters/alaw.c \
 					audiofilters/chanadapt.c \
 					audiofilters/audiomixer.c \
 					audiofilters/tonedetector.c \
+					audiofilters/devices.c audiofilters/devices.h \
 					utils/g722.h \
 					utils/g722_decode.c \
 					utils/g722_encode.c \
@@ -115,6 +115,10 @@ endif
 
 if BUILD_G726
 libmediastreamer_voip_la_SOURCES+=	audiofilters/g726.c
+endif
+
+if BUILD_OPUS
+libmediastreamer_voip_la_SOURCES+=	audiofilters/msopus.c
 endif
 
 if BUILD_WIN32
@@ -147,6 +151,7 @@ endif
 
 if BUILD_IOSIOUNIT
 libmediastreamer_voip_la_SOURCES+=	audiofilters/msiounit.m
+libmediastreamer_voip_la_SOURCES+=	audiofilters/aac-eld.c
 endif
 
 if BUILD_MACAQSND
@@ -169,6 +174,7 @@ endif
 
 if BUILD_IOS
 libmediastreamer_voip_la_SOURCES+=	voip/scaler.c \
+					voip/ioshardware.m \
 					videofilters/iosdisplay.m \
 					videofilters/ioscapture.m \
 					utils/shaders.c \
@@ -198,13 +204,23 @@ if BUILD_VP8
 libmediastreamer_voip_la_SOURCES+=	videofilters/vp8.c
 endif
 
-if BUILD_FFMPEG
+if BUILD_AVCODEC
 libmediastreamer_voip_la_SOURCES+=	videofilters/videoenc.c \
 					videofilters/videodec.c \
-					utils/swscale.h utils/ffmpeg-priv.h \
+					utils/swscale.h \
+					utils/ffmpeg-priv.h \
+					utils/ffmpeg-priv.c \
 					videofilters/h264dec.c \
-					videofilters/jpegwriter.c
+					videofilters/jpegwriter.c 
 endif
+
+if BUILD_AVCODEC 
+libmediastreamer_voip_la_SOURCES+= 	videofilters/nowebcam.c voip/nowebcam.h 
+else
+if BUILD_IOS
+libmediastreamer_voip_la_SOURCES+= 	videofilters/nowebcam.c voip/nowebcam.h 
+endif
+endif #might be better
 
 if BUILD_SDL
 libmediastreamer_voip_la_SOURCES+=	videofilters/videoout.c 
@@ -227,8 +243,7 @@ libmediastreamer_voip_la_SOURCES+=	voip/rfc2429.h \
 					voip/rfc3984.c \
 					videofilters/mire.c \
 					videofilters/extdisplay.c \
-					voip/layouts.c voip/layouts.h \
-					videofilters/nowebcam.c voip/nowebcam.h 
+					voip/layouts.c voip/layouts.h 
 
 if ORTP_ENABLED
 libmediastreamer_voip_la_SOURCES+=	voip/videostream.c
@@ -247,16 +262,16 @@ libmediastreamer_voip_la_SOURCES+=	upnp/upnp_igd.c \
 endif
 
 basedescs.h:	Makefile $(libmediastreamer_base_la_SOURCES)
-	builddir=`pwd` && cd $(srcdir) && \
-	awk 'BEGIN { FS="[()]" ; }; /^\t*MS_FILTER_DESC_EXPORT/{ printf("%s\n", $$2) } '  > $$builddir/basedescs.txt $(libmediastreamer_base_la_SOURCES) && \
-	awk 'BEGIN { print("#include \"mediastreamer2/msfilter.h\"\n") } { printf("extern MSFilterDesc %s;\n",$$1) } ' $$builddir/basedescs.txt > $$builddir/$@ && \
-	awk 'BEGIN { print("MSFilterDesc * ms_base_filter_descs[]={") } { printf("&%s,\n",$$1) } END{ print("NULL\n};\n") } ' $$builddir/basedescs.txt >> $$builddir/$@
+	cd $(srcdir) && \
+	awk 'BEGIN { FS="[()]" ; }; /^\t*MS_FILTER_DESC_EXPORT/{ printf("%s\n", $$2) } '  > $(abs_builddir)/basedescs.txt $(libmediastreamer_base_la_SOURCES) && \
+	awk 'BEGIN { print("#include \"mediastreamer2/msfilter.h\"\n") } { printf("extern MSFilterDesc %s;\n",$$1) } ' $(abs_builddir)/basedescs.txt > $(abs_builddir)/$@ && \
+	awk 'BEGIN { print("MSFilterDesc * ms_base_filter_descs[]={") } { printf("&%s,\n",$$1) } END{ print("NULL\n};\n") } ' $(abs_builddir)/basedescs.txt >> $(abs_builddir)/$@
 
 voipdescs.h:	Makefile $(libmediastreamer_voip_la_SOURCES)
-	builddir=`pwd` && cd $(srcdir) && \
-	awk 'BEGIN { FS="[()]" ; }; /^\t*MS_FILTER_DESC_EXPORT/{ printf("%s\n", $$2) } '  > $$builddir/voipdescs.txt $(libmediastreamer_voip_la_SOURCES) && \
-	awk 'BEGIN { print("#include \"mediastreamer2/msfilter.h\"\n") } { printf("extern MSFilterDesc %s;\n",$$1) } ' $$builddir/voipdescs.txt > $$builddir/$@ && \
-	awk 'BEGIN { print("MSFilterDesc * ms_voip_filter_descs[]={") } { printf("&%s,\n",$$1) } END{ print("NULL\n};\n") } ' $$builddir/voipdescs.txt >> $$builddir/$@
+	cd $(srcdir) && \
+	awk 'BEGIN { FS="[()]" ; }; /^\t*MS_FILTER_DESC_EXPORT/{ printf("%s\n", $$2) } '  > $(abs_builddir)/voipdescs.txt $(libmediastreamer_voip_la_SOURCES) && \
+	awk 'BEGIN { print("#include \"mediastreamer2/msfilter.h\"\n") } { printf("extern MSFilterDesc %s;\n",$$1) } ' $(abs_builddir)/voipdescs.txt > $(abs_builddir)/$@ && \
+	awk 'BEGIN { print("MSFilterDesc * ms_voip_filter_descs[]={") } { printf("&%s,\n",$$1) } END{ print("NULL\n};\n") } ' $(abs_builddir)/voipdescs.txt >> $(abs_builddir)/$@
 
 
 libmediastreamer_base_la_LIBADD=	$(ORTP_LIBS)
@@ -296,7 +311,8 @@ AM_CFLAGS=\
 	$(LIBPULSE_CFLAGS) \
 	$(SPANDSP_CFLAGS)  \
 	$(MSSILK_CFLAGS) \
-	$(PCAP_CFLAGS)
+	$(PCAP_CFLAGS) \
+	$(OPUS_CFLAGS) 
 
 AM_CXXFLAGS=\
 	$(STRICT_OPTIONS) \
@@ -323,7 +339,8 @@ libmediastreamer_voip_la_LIBADD=	libmediastreamer_base.la \
 					$(LIBV4L1_LIBS) \
 					$(LIBV4L2_LIBS) \
 					$(SPANDSP_LIBS) \
-					$(PCAP_LIBS)
+					$(PCAP_LIBS) \
+					$(OPUS_LIBS)
 
 if BUILD_VP8
 AM_CFLAGS+=$(VP8_CFLAGS)
@@ -375,11 +392,9 @@ make_gitversion_h:
 $(GITVERSION_FILE):	make_gitversion_h
 
 yuv2rgb.fs.h: yuv2rgb.fs
-	builddir=`pwd` && \
-	cd $(top_srcdir)/src && \
-	xxd -i yuv2rgb.fs | sed s/}\;/,0x00}\;/ > $$builddir/yuv2rgb.fs.h
+	cd $(abs_srcdir) && \
+	xxd -i yuv2rgb.fs | sed s/}\;/,0x00}\;/ > $(abs_builddir)/yuv2rgb.fs.h
 
 yuv2rgb.vs.h: yuv2rgb.vs
-	builddir=`pwd` && \
-	cd $(top_srcdir)/src && \
-	xxd -i yuv2rgb.vs | sed s/}\;/,0x00}\;/ > $$builddir/yuv2rgb.vs.h
+	cd $(abs_srcdir) && \
+	xxd -i yuv2rgb.vs | sed s/}\;/,0x00}\;/ > $(abs_builddir)/yuv2rgb.vs.h

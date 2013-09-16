@@ -252,6 +252,7 @@ typedef struct c_srtpSecrets
 #define ForSender   2       /*!< Enable security for SRTP sender */
 
 #ifdef __cplusplus
+#pragma GCC visibility push(default)
 extern "C"
 {
 #endif
@@ -525,10 +526,10 @@ extern "C"
          * @param ctx
          *    Pointer to the opaque ZrtpContext structure.
          * @param sas
-         *    The SAS string to sign.
+         *    Pointer to the 32 byte SAS hash to sign.
          *
          */
-        void (*zrtp_signSAS)(ZrtpContext* ctx, char* sas) ;
+        void (*zrtp_signSAS)(ZrtpContext* ctx, uint8_t* sas) ;
 
         /**
          * ZRTPQueue calls this method to request a SAS signature check.
@@ -549,12 +550,12 @@ extern "C"
          * @param ctx
          *    Pointer to the opaque ZrtpContext structure.
          * @param sas
-         *    The SAS string that was signed by the other peer.
+         *    Pointer to the 32 byte SAS hash that was signed by the other peer.
          * @return
          *    true if the signature was ok, false otherwise.
          *
          */
-        int32_t (*zrtp_checkSASSignature) (ZrtpContext* ctx, char* sas ) ;
+        int32_t (*zrtp_checkSASSignature) (ZrtpContext* ctx, uint8_t* sas ) ;
     } zrtp_Callbacks;
 
     /**
@@ -796,6 +797,23 @@ extern "C"
     char* zrtp_getHelloHash(ZrtpContext* zrtpContext);
 
     /**
+     * Get the peer's ZRTP Hello Hash data.
+     *
+     * Use this method to get the peer's ZRTP Hello Hash data. The method
+     * returns the data as a string containing the ZRTP protocol version and
+     * hex-digits.
+     *
+     * The peer's hello hash is available only after ZRTP received a hello. If
+     * no data is available the function returns an empty string.
+     *
+     * Refer to ZRTP specification, chapter 8.
+     *
+     * @return
+     *    a std:string containing the Hello version and the hello hash as hex digits.
+     */
+    char* zrtp_getPeerHelloHash(ZrtpContext* zrtpContext);
+
+    /**
      * Get Multi-stream parameters.
      *
      * Use this method to get the Multi-stream parameters that were computed
@@ -882,7 +900,7 @@ extern "C"
      *     True if the enrollment request is accepted, false otherwise.
      */
     void zrtp_acceptEnrollment(ZrtpContext* zrtpContext, int32_t accepted);
-    
+
     /**
      * Check the state of the enrollment mode.
      * 
@@ -912,6 +930,17 @@ extern "C"
     void zrtp_setEnrollmentMode(ZrtpContext* zrtpContext, int32_t enrollmentMode);
 
     /**
+     * Check if a peer's cache entry has a vaild MitM key.
+     *
+     * If true then the other peer ha a valid MtiM key, i.e. the peer has performed
+     * the enrollment procedure. A PBX ZRTP Back-2-Back application can use this function
+     * to check which of the peers is enrolled.
+     *
+     * @return True if the other peer has a valid Mitm key (is enrolled).
+     */
+    int32_t isPeerEnrolled(ZrtpContext* zrtpContext);
+
+    /**
      * Send the SAS relay packet.
      * 
      * The method creates and sends a SAS relay packet according to the ZRTP
@@ -937,6 +966,10 @@ extern "C"
     /**
      * Get the computed SAS hash for this ZRTP session.
      * 
+     * A PBX ZRTP back-to-Back function uses this function to get the SAS
+     * hash of an enrolled client to construct the SAS relay packet for
+     * the other client.
+     *
      * @param zrtpContext
      *    Pointer to the opaque ZrtpContext structure.
      * @return a pointer to the byte array that contains the full 
@@ -978,14 +1011,10 @@ extern "C"
      *
      * @param zrtpContext
      *    Pointer to the opaque ZrtpContext structure.
-     * @param data
-     *    Pointer to a data buffer. This buffer must be large enough to
-     *    hold the signature data. Refer to <code>getSignatureLength()</code>
-     *    to get the length of the received signature data.
      * @return
      *    Number of bytes copied into the data buffer
      */
-    int32_t zrtp_getSignatureData(ZrtpContext* zrtpContext, uint8_t* data);
+    const uint8_t* zrtp_getSignatureData(ZrtpContext* zrtpContext);
 
     /**
      * Get length of signature data
@@ -1301,6 +1330,7 @@ extern "C"
 
 #ifdef __cplusplus
 }
+#pragma GCC visibility pop
 #endif
 
 /**

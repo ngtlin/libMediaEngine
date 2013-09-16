@@ -27,7 +27,7 @@
 extern void initializeGcrypt();
 
 void aesCfbEncrypt(uint8_t* key, int32_t keyLength, uint8_t* IV, uint8_t *data,
-                   int32_t dataLength);
+                   int32_t dataLength)
 {
     gcry_error_t err = 0;
     int algo;
@@ -52,7 +52,7 @@ void aesCfbEncrypt(uint8_t* key, int32_t keyLength, uint8_t* IV, uint8_t *data,
 }
 
 void aesCfbDecrypt(uint8_t* key, int32_t keyLength, const uint8_t* IV, uint8_t *data,
-                   int32_t dataLength);
+                   int32_t dataLength)
 {
     gcry_error_t err = 0;
     int algo;
