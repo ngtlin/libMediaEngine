@@ -125,6 +125,7 @@ typedef struct _MSSndCardDesc MSSndCardDesc;
 #define MS_SND_CARD_CAP_CAPTURE (1) /**<This sound card can capture sound */
 #define MS_SND_CARD_CAP_PLAYBACK (1<<1) /**<This sound card can playback sound */
 #define MS_SND_CARD_CAP_BUILTIN_ECHO_CANCELLER (1<<2) /**<This sound card has built-in echo cancellation*/
+#define MS_SND_CARD_CAP_BUILTIN_NOISE_SUPPRESSOR (1<<3) /**<This sound card has built-in noise suppression*/
 
 struct _MSSndCard{
 	MSSndCardDesc *desc;

@@ -70,7 +70,7 @@ static SoundDeviceDescription devices[]={
 	{	"samsung",	"SPH-L710","",				DEVICE_HAS_BUILTIN_AEC,	0 }, /* Galaxy S3*/
 	{	"samsung",	"SPH-D710","",				DEVICE_HAS_BUILTIN_AEC,	0 }, /* Galaxy S3*/
 	{	"samsung",	"SGH-T999",		"",			DEVICE_HAS_BUILTIN_AEC,	0 },  /*Galaxy S3*/
-	{	"samsung",	"GT-I8190",		"",			DEVICE_HAS_BUILTIN_AEC,	0 },  /*Galaxy S3*/
+	{	"samsung",	"GT-I8190",	"montblanc",	DEVICE_HAS_BUILTIN_AEC,	0, 16000 },  /*Galaxy S3 mini*/
 	{	"samsung",	"SAMSUNG-SGH-I337","",		DEVICE_HAS_BUILTIN_AEC,	0 }, /* Galaxy S4 ? */
 	{	"samsung",	"GT-N7000",		"",			DEVICE_HAS_BUILTIN_AEC,	0 },  /*Galaxy Note*/
 	{	"samsung",	"GT-N7100",		"",			DEVICE_HAS_BUILTIN_AEC,	0 },  /*Galaxy Note 2*/
@@ -153,6 +153,7 @@ SoundDeviceDescription * sound_device_description_get(void){
 	
 	bool_t exact_match=FALSE;
 	bool_t declares_builtin_aec=FALSE;
+	bool_t declares_builtin_ns=FALSE;
 
 #ifdef ANDROID
 	
@@ -187,8 +188,26 @@ SoundDeviceDescription * sound_device_description_get(void){
 		}else{
 			(*env)->ExceptionClear(env); //very important.
 		}
-	}
-	
+
+                jclass nsClass = (*env)->FindClass(env,"android/media/audiofx/NoiseSuppressor");
+                if (nsClass!=NULL){
+                        nsClass= (jclass)(*env)->NewGlobalRef(env,nsClass);
+                        jmethodID isAvailableID = (*env)->GetStaticMethodID(env,nsClass,"isAvailable","()Z");
+                        if (isAvailableID!=NULL){
+                                jboolean ret=(*env)->CallStaticBooleanMethod(env,nsClass,isAvailableID);
+                                if (ret){
+                                        ms_message("This device (%s/%s/%s) declares it has a built-in noise suppressor.",manufacturer,model,platform);
+                                        declares_builtin_ns=TRUE;
+                                }else ms_message("This device (%s/%s/%s) says it has no built-in noise suppressor.",manufacturer,model,platform);
+                        }else{
+                                ms_error("isAvailable() not found in class NoiseSuppressor !");
+                                (*env)->ExceptionClear(env); //very important.
+                        }
+                        (*env)->DeleteGlobalRef(env,nsClass);
+                }else{
+                        (*env)->ExceptionClear(env); //very important.
+                }
+	}	
 #endif
 	
 	d=lookup_by_model(manufacturer,model);
@@ -213,6 +232,9 @@ SoundDeviceDescription * sound_device_description_get(void){
 			d->delay=0;
 		}
 	}
+        if (declares_builtin_ns){       
+        	d->flags|=DEVICE_HAS_BUILTIN_NS;
+        }
 	return d;
 }
 

@@ -59,7 +59,7 @@ struct AndroidNativeSndCardData{
 		if (AudioSystem::getOutputSamplingRate(&hwrate,AUDIO_STREAM_VOICE_CALL)==0){
 			ms_message("Hardware output sampling rate is %i",hwrate);
 		}
-		if (forced_rate){
+		if (forced_rate>0){
 			ms_message("Hardware is known to have bugs at default sampling rate, using %i Hz instead.",forced_rate);
 			hwrate=forced_rate;
 		}
@@ -147,6 +147,7 @@ struct AndroidSndReadData{
 #endif
 		rec_buf_size=mCard->mRecFrames * 4;
 		builtin_aec=card->capabilities & MS_SND_CARD_CAP_BUILTIN_ECHO_CANCELLER;
+		builtin_ns=card->capabilities & MS_SND_CARD_CAP_BUILTIN_NOISE_SUPPRESSOR;
 	}
 	MSFilter *mFilter;
 	AndroidNativeSndCardData *mCard;
@@ -164,6 +165,8 @@ struct AndroidSndReadData{
 	jobject aec;
 	bool started;
 	bool builtin_aec;
+	bool builtin_ns;
+	jobject ns;
 };
 
 struct AndroidSndWriteData{
@@ -273,7 +276,9 @@ static MSSndCard * android_snd_card_new(void)
 	
 	d=sound_device_description_get();
 	if (d->flags & DEVICE_HAS_BUILTIN_AEC) obj->capabilities|=MS_SND_CARD_CAP_BUILTIN_ECHO_CANCELLER;
+	if (d->flags & DEVICE_HAS_BUILTIN_NS) obj->capabilities|=MS_SND_CARD_CAP_BUILTIN_NOISE_SUPPRESSOR;
 	obj->latency=d->delay;
+	ms_message("snd_card recommended_rate=%i", d->recommended_rate);
 	obj->data=new AndroidNativeSndCardData(d->recommended_rate);
 	return obj;
 }
@@ -324,6 +329,64 @@ static void android_snd_read_cb(int event, void* user, void *p_info){
 	}
 }
 
+static void android_snd_read_activate_hardware_ns(MSFilter *obj){
+	AndroidSndReadData *ad=(AndroidSndReadData*)obj->data;
+	JNIEnv *env=ms_get_jni_env();
+	int sessionId=ad->rec->getSessionId();
+	
+	if (sessionId==-1) return;
+	
+	jclass nsClass = env->FindClass("android/media/audiofx/NoiseSuppressor");
+	if (nsClass==NULL){
+		env->ExceptionClear(); //very important.
+		ms_warning("class android.media.audiofx.NoiseSuppressor not found!");
+		return;
+	}
+	nsClass= (jclass)env->NewGlobalRef(nsClass);
+	jmethodID isAvailableID_NS = env->GetStaticMethodID(nsClass,"isAvailable","()Z");
+	if (isAvailableID_NS!=NULL){
+		jboolean ret=env->CallStaticBooleanMethod(nsClass,isAvailableID_NS);
+		if (ret){
+			jmethodID createID = env->GetStaticMethodID(nsClass,"create","(I)Landroid/media/audiofx/NoiseSuppressor;");
+			if (createID!=NULL){
+				ad->ns=env->CallStaticObjectMethod(nsClass,createID,sessionId);
+				if (ad->ns){
+					ad->ns=env->NewGlobalRef(ad->ns);
+					ms_message("NoiseSuppressor successfully created.");
+					jclass effectClass=env->FindClass("android/media/audiofx/AudioEffect");
+					if (effectClass){
+						effectClass=(jclass)env->NewGlobalRef(effectClass);
+						jmethodID isEnabledID = env->GetMethodID(effectClass,"getEnabled","()Z");
+						jmethodID setEnabledID = env->GetMethodID(effectClass,"setEnabled","(Z)I");
+						if (isEnabledID && setEnabledID){
+							jboolean enabled=env->CallBooleanMethod(ad->ns,isEnabledID);
+							ms_message("NoiseSuppressor enabled: %i",(int)enabled);
+							if (!enabled){
+								int ret=env->CallIntMethod(ad->ns,setEnabledID,TRUE);
+								if (ret!=0){
+									ms_error("Could not enable NoiseSuppressor: %i",ret);
+								} else {
+									ms_message("NoiseSuppressor enabling done!");
+								}
+							}
+						}
+						env->DeleteGlobalRef(effectClass);
+					}
+				}else{
+					ms_error("Failed to create NoiseSuppressor.");
+				}
+			}else{
+				ms_error("create() not found in class NoiseSuppressor !");
+				env->ExceptionClear(); //very important.
+			}
+		}
+	}else{
+		ms_error("isAvailable() not found in class NoiseSuppressor !");
+		env->ExceptionClear(); //very important.
+	}
+	env->DeleteGlobalRef(nsClass);
+}
+
 static void android_snd_read_activate_hardware_aec(MSFilter *obj){
 	AndroidSndReadData *ad=(AndroidSndReadData*)obj->data;
 	JNIEnv *env=ms_get_jni_env();
@@ -359,6 +422,8 @@ static void android_snd_read_activate_hardware_aec(MSFilter *obj){
 								int ret=env->CallIntMethod(ad->aec,setEnabledID,TRUE);
 								if (ret!=0){
 									ms_error("Could not enable AcousticEchoCanceler: %i",ret);
+								} else {
+									ms_message("AcousticEchoCanceler enabling done!");
 								}
 							}
 						}
@@ -412,6 +477,7 @@ static void android_snd_read_preprocess(MSFilter *obj){
 
 	if (ad->rec != 0) {
 		if (ad->builtin_aec) android_snd_read_activate_hardware_aec(obj);
+		if (ad->builtin_ns) android_snd_read_activate_hardware_ns(obj);
 		ad->rec->start();
 	}
 }
@@ -426,6 +492,11 @@ static void android_snd_read_postprocess(MSFilter *obj){
 			JNIEnv *env=ms_get_jni_env();
 			env->DeleteGlobalRef(ad->aec);
 			ad->aec=NULL;
+		}
+		if (ad->ns){
+			JNIEnv *env=ms_get_jni_env();
+			env->DeleteGlobalRef(ad->ns);
+			ad->ns=NULL;
 		}
 		delete ad->rec;
 		ad->rec=0;

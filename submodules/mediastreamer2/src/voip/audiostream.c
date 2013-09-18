@@ -232,6 +232,7 @@ int audio_stream_start_full(AudioStream *stream, RtpProfile *profile, const char
 	int sample_rate;
 	MSRtpPayloadPickerContext picker_context;
 	bool_t has_builtin_ec=FALSE;
+        bool_t has_builtin_ns=FALSE;
 
 	rtp_session_set_profile(rtps,profile);
 	if (rem_rtp_port>0) rtp_session_set_remote_addr_full(rtps,rem_rtp_ip,rem_rtp_port,rem_rtcp_ip,rem_rtcp_port);
@@ -258,6 +259,7 @@ int audio_stream_start_full(AudioStream *stream, RtpProfile *profile, const char
 		if (stream->soundread==NULL)
 			stream->soundread=ms_snd_card_create_reader(captcard);
 		has_builtin_ec=!!(ms_snd_card_get_capabilities(captcard) & MS_SND_CARD_CAP_BUILTIN_ECHO_CANCELLER);
+		has_builtin_ns=!!(ms_snd_card_get_capabilities(captcard) & MS_SND_CARD_CAP_BUILTIN_NOISE_SUPPRESSOR);
 	}else {
 		stream->soundread=ms_filter_new(MS_FILE_PLAYER_ID);
 		stream->read_resampler=ms_filter_new(MS_RESAMPLE_ID);
@@ -314,6 +316,10 @@ int audio_stream_start_full(AudioStream *stream, RtpProfile *profile, const char
 		stream->volrecv=ms_filter_new(MS_VOLUME_ID);
 	else
 		stream->volrecv=NULL;
+	if (has_builtin_ns) {
+		ms_message("--- Has Builtin Noise suppression ---");
+		stream->el_type=ELInactive;
+	}
 	audio_stream_enable_echo_limiter(stream,stream->el_type);
 	audio_stream_enable_noise_gate(stream,stream->use_ng);
 
